@@ -217,7 +217,13 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 
   <!-- ========== LOG ========== -->
   <section class="view active" id="v-log">
-    <div class="sect-h"><h2>Branch / Location</h2><span class="line"></span></div>
+    <div id="editBanner" class="card tight" style="display:none;border-color:var(--acc);background:rgba(31,230,200,.07);margin-top:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="font-weight:600;font-size:13px">✎ Editing session <span id="editBannerDate" style="color:var(--acc)"></span></div>
+        <button class="btn sm ghost" id="cancelEdit" style="width:auto;padding:7px 12px;color:var(--mut)">Cancel</button>
+      </div>
+    </div>
+    <div class="sect-h"><h2>Branch / Location</h2><span id="branchReq" class="tagpill bad" style="margin-left:8px">required</span><span class="line"></span></div>
     <div class="chips" id="branchChips"></div>
 
     <div class="sect-h"><h2>Session</h2><span class="line"></span></div>
@@ -397,7 +403,7 @@ function toast(msg,pr){const t=$('#toast');t.textContent=msg;t.className=pr?'sho
 function weekKey(d){const dt=new Date(d+'T00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
 
 /* ============================ LOG VIEW ============================ */
-let draft = { branch:null, entries:[] };
+let draft = { branch:null, entries:[], editingId:null };
 
 function renderBranchChips(){
   const c=$('#branchChips'); c.innerHTML='';
@@ -412,6 +418,7 @@ function renderBranchChips(){
   add.className='chip add';add.textContent='+ branch';
   add.onclick=()=>openMore();
   c.appendChild(add);
+  const req=$('#branchReq'); if(req)req.style.display=draft.branch?'none':'';
 }
 
 function blankSet(prev){return {reps:prev?prev.reps:'',weight:prev?prev.weight:'',rpe:prev?prev.rpe:'',type:'W'};}
@@ -497,25 +504,47 @@ $('#exSearch').addEventListener('input',e=>renderExResults(e.target.value));
 $('#addExBtn').onclick=openExModal;
 $('#fab').onclick=()=>{go('log');openExModal();};
 
+/* edit-mode helpers */
+function setEditMode(){
+  const editing=!!draft.editingId;
+  $('#saveSess').textContent=editing?'Update session':'Save session';
+  $('#editBanner').style.display=editing?'block':'none';
+  if(editing){const s=DB.sessions.find(x=>x.id===draft.editingId);$('#editBannerDate').textContent=s?fmtDate(s.date):'';}
+}
+function resetDraft(){
+  draft={branch:null,entries:[],editingId:null};
+  $('#sessDate').value=todayStr();$('#sessBw').value='';$('#sessNotes').value='';
+  setEditMode();renderBranchChips();renderExList();
+}
+function loadSessionToDraft(id){
+  const s=DB.sessions.find(x=>x.id===id);if(!s)return;
+  draft={branch:s.branch,editingId:s.id,entries:(s.entries||[]).map(en=>({
+    exId:en.exId,name:en.name,cat:en.cat,machine:en.machine||'',remarks:en.remarks||'',
+    sets:(en.sets&&en.sets.length?en.sets:[{}]).map(st=>({reps:st.reps??'',weight:st.weight??'',rpe:st.rpe??'',type:st.type||'W'}))
+  }))};
+  $('#sessDate').value=s.date;$('#sessBw').value=s.bodyweight??'';$('#sessNotes').value=s.notes||'';
+  setEditMode();renderBranchChips();renderExList();go('log');
+}
+$('#cancelEdit').onclick=()=>{resetDraft();go('hist');renderHistory();};
+
 /* save session */
 $('#saveSess').onclick=()=>{
-  if(!draft.branch){toast('Pick a branch first');return;}
+  if(!draft.branch){toast('Select a gym branch first');return;}
   const entries=draft.entries.map(en=>({
     exId:en.exId,name:en.name,cat:en.cat,machine:en.machine,remarks:en.remarks,
     sets:en.sets.filter(s=>num(s.reps)||num(s.weight)).map(s=>({reps:num(s.reps),weight:num(s.weight),rpe:num(s.rpe),type:s.type||'W'}))
   })).filter(en=>en.sets.length);
   if(!entries.length){toast('Add at least one set');return;}
-  const sess={id:uid(),date:$('#sessDate').value||todayStr(),branch:draft.branch,
+  const editing=!!draft.editingId;
+  const sess={id:editing?draft.editingId:uid(),date:$('#sessDate').value||todayStr(),branch:draft.branch,
     bodyweight:num($('#sessBw').value),notes:$('#sessNotes').value.trim(),entries};
-  // PR detection vs prior
-  const prs=detectPRs(sess);
-  sess.prs=prs;
-  DB.sessions.push(sess);save.sessions();
-  // reset draft
-  draft={branch:draft.branch,entries:[]};
-  $('#sessNotes').value='';$('#sessBw').value='';$('#sessDate').value=todayStr();
-  renderExList();
-  if(prs.length)toast('Session saved · '+prs.length+' new PR'+(prs.length>1?'s':'')+'! 🔥',true);
+  sess.prs=detectPRs(sess); // compares against all other sessions (excludes this id)
+  if(editing){DB.sessions=DB.sessions.map(s=>s.id===sess.id?sess:s);}
+  else{DB.sessions.push(sess);}
+  save.sessions();
+  resetDraft();
+  if(editing)toast('Session updated ✓');
+  else if(sess.prs.length)toast('Session saved · '+sess.prs.length+' new PR'+(sess.prs.length>1?'s':'')+'! 🔥',true);
   else toast('Session saved ✓');
   go('hist');renderHistory();
 };
@@ -560,9 +589,13 @@ function renderHistory(){
           ${en.remarks?`<div class="es">“${en.remarks}”</div>`:''}</div>`).join('')}
         ${s.bodyweight?`<div class="es" style="margin-top:8px">Bodyweight: ${s.bodyweight} kg</div>`:''}
         ${s.notes?`<div class="es">Notes: ${s.notes}</div>`:''}
-        <button class="btn danger sm" data-delsess="${s.id}" style="margin-top:10px;width:100%">Delete session</button>
+        <div class="row2" style="margin-top:10px">
+          <button class="btn ghost sm" data-editsess="${s.id}" style="width:100%">Edit session</button>
+          <button class="btn danger sm" data-delsess="${s.id}" style="width:100%">Delete</button>
+        </div>
       </div>`;
     it.querySelector('[data-tog]').onclick=()=>it.querySelector('.hdetail').classList.toggle('open');
+    it.querySelector('[data-editsess]').onclick=()=>loadSessionToDraft(s.id);
     it.querySelector('[data-delsess]').onclick=()=>{if(confirm('Delete this session?')){DB.sessions=DB.sessions.filter(x=>x.id!==s.id);save.sessions();renderHistory();}};
     wrap.appendChild(it);
   });
@@ -983,9 +1016,7 @@ $('#wipeBtn').onclick=async()=>{
 
 /* ============================ INIT ============================ */
 function initUI(){
-  draft={branch:DB.settings.lastBranch||DB.branches[0],entries:draft.entries||[]};
-  $('#sessDate').value=todayStr();
-  renderBranchChips();renderExList();
+  resetDraft();
 }
 (async function(){
   try{await loadDB();}catch(e){console.warn(e);}

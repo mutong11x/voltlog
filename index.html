@@ -350,9 +350,9 @@ async function sset(k,v){
 
 const SEED_EX = [
   ['Barbell Bench Press','Chest'],['Incline DB Press','Chest'],['Machine Chest Press','Chest'],['Cable Fly','Chest'],
-  ['Lat Pulldown','Back'],['Seated Cable Row','Back'],['Barbell Row','Back'],['Pull-up','Back'],['Deadlift','Back'],
+  ['Lat Pulldown','Back'],['Seated Cable Row','Back'],['Barbell Row','Back'],['Pull-up','Back'],['Conventional Deadlift','Back'],['Sumo Deadlift','Back'],
   ['Back Squat','Legs'],['Leg Press','Legs'],['Leg Extension','Legs'],['Leg Curl','Legs'],['Romanian Deadlift','Legs'],['Hip Thrust','Legs'],['Calf Raise','Legs'],
-  ['Overhead Press','Shoulders'],['DB Shoulder Press','Shoulders'],['Lateral Raise','Shoulders'],['Face Pull','Shoulders'],
+  ['Overhead Press','Shoulders'],['DB Shoulder Press','Shoulders'],['Lateral Raise','Shoulders'],['Rear Delt Fly','Shoulders'],['Face Pull','Shoulders'],
   ['Barbell Curl','Arms'],['DB Curl','Arms'],['Hammer Curl','Arms'],['Tricep Pushdown','Arms'],['Skullcrusher','Arms'],
   ['Cable Crunch','Core'],['Hanging Leg Raise','Core'],['Plank','Core']
 ];
@@ -366,6 +366,17 @@ async function loadDB(){
   DB.sessions  = await sget('sessions')  || [];
   DB.scans     = await sget('scans')     || [];
   DB.settings  = await sget('settings')  || {lastBranch:DB.branches[0]};
+  if(migrateLibrary()){ save.exercises(); save.settings(); }
+}
+const LIB_VER = 2;
+// one-time updates to the seeded exercise library for installs that already exist
+function migrateLibrary(){
+  if((DB.settings.libVer||0) >= LIB_VER) return false;
+  DB.exercises = DB.exercises.filter(x => x.name.trim().toLowerCase() !== 'deadlift'); // drop ambiguous entry
+  [['Conventional Deadlift','Back'],['Sumo Deadlift','Back'],['Romanian Deadlift','Legs'],['Rear Delt Fly','Shoulders']]
+    .forEach(([name,cat])=>{ if(!DB.exercises.some(x=>x.name.trim().toLowerCase()===name.toLowerCase())) DB.exercises.push({id:uid(),name,cat}); });
+  DB.settings.libVer = LIB_VER;
+  return true;
 }
 const save = {
   branches:()=>sset('branches',DB.branches),

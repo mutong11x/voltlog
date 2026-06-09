@@ -41,7 +41,7 @@ label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--m
 
 /* Header */
 header{position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--bg) 70%,rgba(10,14,17,.0));
-  padding:16px 0 10px;backdrop-filter:blur(8px)}
+  padding:calc(16px + env(safe-area-inset-top)) 0 10px;backdrop-filter:blur(8px)}
 .brand{display:flex;align-items:center;gap:9px}
 .brand .logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--acc),#0bbf9f);
   display:grid;place-items:center;color:#04231f;font-family:'Saira Condensed';font-weight:700;font-size:20px;box-shadow:0 0 18px rgba(31,230,200,.35)}
@@ -311,7 +311,7 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 <div class="modal" id="exModal"><div class="sheet">
   <div class="grab"></div>
   <h2 style="font-size:20px;margin-bottom:12px">Add Exercise</h2>
-  <input id="exSearch" placeholder="Search or type a new exercise…" autocomplete="off">
+  <input id="exSearch" placeholder="Search or type a new exercise…" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="done">
   <div id="exResults" style="margin-top:12px"></div>
 </div></div>
 

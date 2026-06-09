@@ -814,26 +814,76 @@ function segBalance(s){
     ${pair('larm_l','rarm_l','Arms')}${pair('lleg_l','rleg_l','Legs')}</div>`;
 }
 
+/* selectable body-metric trends */
+const TREND_METRICS=[
+  {k:'armlean',label:'Arm lean L/R',unit:'kg',fields:[['larm_l','Left'],['rarm_l','Right']]},
+  {k:'armfat',label:'Arm fat L/R',unit:'kg',fields:[['larm_f','Left'],['rarm_f','Right']]},
+  {k:'leglean',label:'Leg lean L/R',unit:'kg',fields:[['lleg_l','Left'],['rleg_l','Right']]},
+  {k:'legfat',label:'Leg fat L/R',unit:'kg',fields:[['lleg_f','Left'],['rleg_f','Right']]},
+  {k:'torso',label:'Torso lean/fat',unit:'kg',fields:[['torso_l','Lean'],['torso_f','Fat']]},
+  {k:'weight',label:'Weight',unit:'kg',fields:[['weight','Weight']]},
+  {k:'lbm',label:'Lean mass',unit:'kg',fields:[['lbm','Lean Mass']]},
+  {k:'smm',label:'Skeletal muscle',unit:'kg',fields:[['smm','Skeletal Muscle']]},
+  {k:'tbf',label:'Body fat %',unit:'%',fields:[['tbf','Body Fat %']]},
+  {k:'bfm',label:'Body fat mass',unit:'kg',fields:[['bfm','Body Fat Mass']]},
+  {k:'subc',label:'Subcut. fat',unit:'kg',fields:[['subc','Subcut Fat']]},
+  {k:'water',label:'Water TBW/ICF/ECF',unit:'kg',fields:[['tbw','TBW'],['icf','ICF'],['ecf','ECF']]},
+  {k:'visceral',label:'Visceral lvl/area',unit:'',dual:true,fields:[['vfl','Level'],['vfa','Area cm²']]},
+  {k:'whr',label:'Waist:hip',unit:'',fields:[['whr','WHR']]},
+  {k:'bioage',label:'Bio age',unit:'yr',fields:[['bioage','Bio Age']]},
+  {k:'bwi',label:'BWI',unit:'/10',fields:[['bwi','BWI']]},
+  {k:'bmr',label:'BMR',unit:'kcal',fields:[['bmr','BMR']]},
+];
+const TREND_COLORS=['#1fe6c8','#5cc8ff','#c8ff4d','#ffb454','#ff7a9c','#b78cff'];
+let curTrend='armlean';
+const PAIR_KEYS=['armlean','armfat','leglean','legfat'];
+
 function renderBodyCharts(){
   destroyBody();
   const wrap=$('#bodyCharts');
   if(DB.scans.length<1){wrap.innerHTML='';return;}
+  const hk='font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.1em;font-weight:600;margin-bottom:4px';
   wrap.innerHTML=`
-    <div class="card"><div class="k" style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.1em;font-weight:600;margin-bottom:4px">Composition trend</div><div class="chartbox"><canvas id="compChart"></canvas></div></div>
-    <div class="card"><div class="k" style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.1em;font-weight:600;margin-bottom:4px">Visceral fat & Bio age</div><div class="chartbox"><canvas id="visChart"></canvas></div></div>`;
+    <div class="card"><div class="k" style="${hk}">Composition overview</div><div class="chartbox"><canvas id="compChart"></canvas></div></div>
+    <div class="card">
+      <div class="k" style="${hk}">Detailed trend</div>
+      <div class="pick" id="trendPick"></div>
+      <div class="chartbox"><canvas id="trendChart"></canvas></div>
+      <div id="trendInfo" class="note" style="text-align:center;margin-top:8px"></div>
+    </div>`;
   const sc=[...DB.scans].sort((a,b)=>a.date.localeCompare(b.date));
   const labels=sc.map(s=>fmtDate(s.date));
-  const ax=baseAxes();
   bodyChartObjs.push(new Chart($('#compChart'),{type:'line',data:{labels,datasets:[
     ds('Weight kg',sc.map(s=>s.weight),'#e9f1f3'),
     ds('Skeletal Muscle kg',sc.map(s=>s.smm),'#1fe6c8'),
     ds('Body Fat %',sc.map(s=>s.tbf),'#ff7a5c',true),
   ]},options:multiAxisOpts()}));
-  bodyChartObjs.push(new Chart($('#visChart'),{type:'line',data:{labels,datasets:[
-    ds('Visceral Fat Level',sc.map(s=>s.vfl),'#ffb454'),
-    ds('Visceral Area cm²',sc.map(s=>s.vfa),'#b78cff',true),
-    ds('Bio Age',sc.map(s=>s.bioage),'#5cc8ff'),
-  ]},options:multiAxisOpts()}));
+  renderTrendPicker();
+}
+function renderTrendPicker(){
+  const pick=$('#trendPick');if(!pick)return;pick.innerHTML='';
+  TREND_METRICS.forEach(m=>{const b=document.createElement('button');b.className='chip'+(m.k===curTrend?' on':'');b.textContent=m.label;b.onclick=()=>{curTrend=m.k;renderTrendPicker();};pick.appendChild(b);});
+  drawTrendChart();
+}
+function drawTrendChart(){
+  const idx=bodyChartObjs.findIndex(c=>c.canvas&&c.canvas.id==='trendChart');
+  if(idx>=0){bodyChartObjs[idx].destroy();bodyChartObjs.splice(idx,1);}
+  const m=TREND_METRICS.find(x=>x.k===curTrend)||TREND_METRICS[0];
+  const sc=[...DB.scans].sort((a,b)=>a.date.localeCompare(b.date));
+  const labels=sc.map(s=>fmtDate(s.date));
+  const datasets=m.fields.map((f,i)=>ds(f[1],sc.map(s=>s[f[0]]),TREND_COLORS[i%TREND_COLORS.length], m.dual&&i>0));
+  bodyChartObjs.push(new Chart($('#trendChart'),{type:'line',data:{labels,datasets},options:m.dual?multiAxisOpts():singleAxisOpts()}));
+  const info=$('#trendInfo');if(!info)return;
+  const latest=sc[sc.length-1];
+  if(m.fields.length===2 && PAIR_KEYS.includes(m.k)){
+    const l=latest[m.fields[0][0]],r=latest[m.fields[1][0]];
+    if(l!=null&&r!=null){const diff=+(l-r).toFixed(2);const avg=(l+r)/2;const pct=avg?Math.abs(diff)/avg*100:0;
+      info.innerHTML=`Latest · L <b>${l}</b> vs R <b>${r}</b> ${m.unit} · gap <b style="color:${pct<=5?'var(--acc)':'var(--warn)'}">${Math.abs(diff)}${m.unit} (${pct.toFixed(0)}%)</b>`;}
+    else info.textContent='Not enough data in the latest scan for this metric.';
+  } else {
+    const parts=m.fields.map(f=>latest&&latest[f[0]]!=null?`${f[1]} ${latest[f[0]]}${m.unit}`:'').filter(Boolean);
+    info.innerHTML=parts.length?'Latest · '+parts.join(' · '):'No data for this metric yet.';
+  }
 }
 
 /* ============================ DASHBOARD ============================ */

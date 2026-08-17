@@ -402,9 +402,9 @@ async function loadDB(){
   DB.sessions  = await sget('sessions')  || [];
   DB.scans     = await sget('scans')     || [];
   DB.settings  = await sget('settings')  || {lastBranch:DB.branches[0]};
-  if(migrateLibrary()){ save.exercises(); save.settings(); }
+  if(migrateLibrary()){ save.exercises(); save.settings(); save.sessions(); }
 }
-const LIB_VER = 3;
+const LIB_VER = 4;
 // one-time updates to the seeded exercise library for installs that already exist
 function migrateLibrary(){
   const from=(DB.settings.libVer||0);
@@ -420,6 +420,12 @@ function migrateLibrary(){
     DB.exercises.forEach(x=>{ if(!x.load) x.load='std'; });
     // existing installs get a one-time prompt to tag their unilateral lifts; fresh ones have nothing to transition
     if(DB.sessions.length) DB.settings.tagPrompt = true;
+  }
+  if(from < 4){
+    // PRs are derived by prMap() now. The stored copies are a second source of truth that was
+    // already wrong (frozen at save time, never recomputed) and every field is recomputable,
+    // so drop them. Unlike `load`, this is output data — nothing is lost.
+    DB.sessions.forEach(s=>{ delete s.prs; });
   }
   DB.settings.libVer = LIB_VER;
   return true;
@@ -1210,12 +1216,10 @@ function renameExercise(x,raw){
   const match=en=>en.exId===x.id||en.name===old; // id first; name catches imported backups
   const hits=DB.sessions.filter(s=>(s.entries||[]).some(match)).length;
   if(hits && !confirm('Rename “'+old+'” to “'+nn+'”?\n\nThis also renames it in '+hits+' past session'+
-    (hits>1?'s':'')+' and in your PR history, so its progress chart stays one continuous series.')) return false;
+    (hits>1?'s':'')+', so its progress chart and PR history stay one continuous series.')) return false;
   x.name=nn;
-  DB.sessions.forEach(s=>{
-    (s.entries||[]).forEach(en=>{if(match(en))en.name=nn;});
-    (s.prs||[]).forEach(p=>{if(p.name===old)p.name=nn;}); // else PR badges stop matching
-  });
+  // PRs derive from entry names, so renaming the entries carries the PR history with it
+  DB.sessions.forEach(s=>(s.entries||[]).forEach(en=>{if(match(en))en.name=nn;}));
   draft.entries.forEach(en=>{if(match(en))en.name=nn;});  // an unsaved draft too
   if(curEx===old)curEx=nn;                                // keep the dashboard selection
   save.exercises();save.sessions();renderExList();

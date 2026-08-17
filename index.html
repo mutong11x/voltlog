@@ -369,21 +369,33 @@ const CAT_COLORS = {Chest:'#1fe6c8',Back:'#5cc8ff',Legs:'#c8ff4d',Shoulders:'#ff
 
 let DB = { branches:[], exercises:[], sessions:[], scans:[], settings:{} };
 
+const seedExercises=()=>SEED_EX.map((e,i)=>({id:'s'+i,name:e[0],cat:e[1],load:'std'}));
+
 async function loadDB(){
   DB.branches  = await sget('branches')  || ['Main'];
-  DB.exercises = await sget('exercises') || SEED_EX.map((e,i)=>({id:'s'+i,name:e[0],cat:e[1]}));
+  DB.exercises = await sget('exercises') || seedExercises();
   DB.sessions  = await sget('sessions')  || [];
   DB.scans     = await sget('scans')     || [];
   DB.settings  = await sget('settings')  || {lastBranch:DB.branches[0]};
   if(migrateLibrary()){ save.exercises(); save.settings(); }
 }
-const LIB_VER = 2;
+const LIB_VER = 3;
 // one-time updates to the seeded exercise library for installs that already exist
 function migrateLibrary(){
-  if((DB.settings.libVer||0) >= LIB_VER) return false;
-  DB.exercises = DB.exercises.filter(x => x.name.trim().toLowerCase() !== 'deadlift'); // drop ambiguous entry
-  [['Conventional Deadlift','Back'],['Sumo Deadlift','Back'],['Romanian Deadlift','Legs'],['Rear Delt Fly','Shoulders']]
-    .forEach(([name,cat])=>{ if(!DB.exercises.some(x=>x.name.trim().toLowerCase()===name.toLowerCase())) DB.exercises.push({id:uid(),name,cat}); });
+  const from=(DB.settings.libVer||0);
+  if(from >= LIB_VER) return false;
+  if(from < 2){
+    DB.exercises = DB.exercises.filter(x => x.name.trim().toLowerCase() !== 'deadlift'); // drop ambiguous entry
+    [['Conventional Deadlift','Back'],['Sumo Deadlift','Back'],['Romanian Deadlift','Legs'],['Rear Delt Fly','Shoulders']]
+      .forEach(([name,cat])=>{ if(!DB.exercises.some(x=>x.name.trim().toLowerCase()===name.toLowerCase())) DB.exercises.push({id:uid(),name,cat}); });
+  }
+  if(from < 3){
+    // load type for per-side volume. Library only — stored sessions keep whatever they were
+    // logged with (entryVol treats a missing load as 'std'), so historical volume can't shift.
+    DB.exercises.forEach(x=>{ if(!x.load) x.load='std'; });
+    // existing installs get a one-time prompt to tag their unilateral lifts; fresh ones have nothing to transition
+    if(DB.sessions.length) DB.settings.tagPrompt = true;
+  }
   DB.settings.libVer = LIB_VER;
   return true;
 }
@@ -489,8 +501,8 @@ function renderExResults(q){
     const add=document.createElement('button');add.className='btn primary';add.style.marginBottom='10px';
     add.textContent='+ Add "'+q.trim()+'" as custom';
     add.onclick=()=>{
-      // ask category quickly via prompt-less cycle: default Other, let user change in chip
-      const nx={id:uid(),name:q.trim(),cat:'Other',custom:true};
+      // added as Other/std so logging isn't interrupted — refine it in Settings › Exercise Library
+      const nx={id:uid(),name:q.trim(),cat:'Other',load:'std',custom:true};
       DB.exercises.push(nx);save.exercises();addExerciseToDraft(nx);
     };
     box.appendChild(add);
@@ -505,7 +517,7 @@ function renderExResults(q){
   });
 }
 function addExerciseToDraft(x){
-  draft.entries.push({exId:x.id,name:x.name,cat:x.cat,sets:[blankSet()],machine:'',remarks:''});
+  draft.entries.push({exId:x.id,name:x.name,cat:x.cat,load:x.load||'std',sets:[blankSet()],machine:'',remarks:''});
   $('#exModal').classList.remove('open');renderExList();
 }
 $('#exSearch').addEventListener('input',e=>renderExResults(e.target.value));
@@ -526,8 +538,10 @@ function resetDraft(){
 }
 function loadSessionToDraft(id){
   const s=DB.sessions.find(x=>x.id===id);if(!s)return;
+  // load comes from the stored ENTRY, not the library — re-saving an old session must not
+  // re-stamp it with a load type the exercise only acquired later (same reason as name/cat)
   draft={branch:s.branch,editingId:s.id,entries:(s.entries||[]).map(en=>({
-    exId:en.exId,name:en.name,cat:en.cat,machine:en.machine||'',remarks:en.remarks||'',
+    exId:en.exId,name:en.name,cat:en.cat,load:en.load||'std',machine:en.machine||'',remarks:en.remarks||'',
     sets:(en.sets&&en.sets.length?en.sets:[{}]).map(st=>({reps:st.reps??'',weight:st.weight??'',rpe:st.rpe??'',type:st.type||'W'}))
   }))};
   $('#sessDate').value=s.date;$('#sessBw').value=s.bodyweight??'';$('#sessNotes').value=s.notes||'';
@@ -539,7 +553,7 @@ $('#cancelEdit').onclick=()=>{resetDraft();go('hist');renderHistory();};
 $('#saveSess').onclick=()=>{
   if(!draft.branch){toast('Select a gym branch first');return;}
   const entries=draft.entries.map(en=>({
-    exId:en.exId,name:en.name,cat:en.cat,machine:en.machine,remarks:en.remarks,
+    exId:en.exId,name:en.name,cat:en.cat,load:en.load||'std',machine:en.machine,remarks:en.remarks,
     sets:en.sets.filter(s=>num(s.reps)||num(s.weight)).map(s=>({reps:num(s.reps),weight:num(s.weight),rpe:num(s.rpe),type:s.type||'W'}))
   })).filter(en=>en.sets.length);
   if(!entries.length){toast('Add at least one set');return;}
@@ -1070,7 +1084,7 @@ $('#importFile').onchange=async e=>{
 };
 $('#wipeBtn').onclick=async()=>{
   if(!confirm('Erase ALL workouts and scans? This cannot be undone.'))return;
-  DB={branches:['Main'],exercises:SEED_EX.map((e,i)=>({id:'s'+i,name:e[0],cat:e[1]})),sessions:[],scans:[],settings:{lastBranch:'Main'}};
+  DB={branches:['Main'],exercises:seedExercises(),sessions:[],scans:[],settings:{lastBranch:'Main',libVer:LIB_VER}};
   await Promise.all(Object.values(save).map(fn=>fn()));
   $('#moreModal').classList.remove('open');initUI();toast('All data erased');
 };

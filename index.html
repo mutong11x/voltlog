@@ -476,7 +476,8 @@ function renderExList(){
     const col=CAT_COLORS[en.cat]||CAT_COLORS.Other;
     card.innerHTML=`
       <div class="ex-top">
-        <div><div class="nm">${en.name}</div><div class="cat" style="color:${col}">${en.cat||'Other'}</div></div>
+        <div><div class="nm">${en.name}</div><div class="cat" style="color:${col}">${en.cat||'Other'}${
+          en.load==='side'?'<span class="tagpill ok" style="margin-left:6px">per side · ×2 vol</span>':''}</div></div>
         <button class="del-x" data-del="${ei}">✕</button>
       </div>
       <div class="ex-body">
@@ -633,7 +634,8 @@ function renderHistory(){
       </div>
       <div class="hdetail">
         ${s.entries.map(en=>`<div class="exline"><div class="en">${en.name}${s.prs&&s.prs.some(p=>p.name===en.name)?'<span class="pr-badge">PR</span>':''}</div>
-          <div class="es">${en.sets.map(st=>`${st.reps||'–'}×${st.weight||'–'}kg${st.rpe?' @'+st.rpe:''}`).join('   ·   ')}</div>
+          <div class="es">${en.sets.map(st=>`${st.reps||'–'}×${st.weight||'–'}kg${st.rpe?' @'+st.rpe:''}`).join('   ·   ')}${
+            en.load==='side'?'   ·   <span style="color:var(--acc)">/side</span>':''}</div>
           ${en.machine?`<div class="es" style="color:var(--blue)">⚙ ${en.machine}</div>`:''}
           ${en.remarks?`<div class="es">“${en.remarks}”</div>`:''}</div>`).join('')}
         ${s.bodyweight?`<div class="es" style="margin-top:8px">Bodyweight: ${s.bodyweight} kg</div>`:''}
@@ -1013,7 +1015,7 @@ function renderExLog(){
     return `<div class="exlog-row">
       <div class="exlog-h">
         <div class="exlog-d">${fmtDate(r.date)}<span class="br">${r.branch}</span>${r.isPR?'<span class="pr-badge">PR</span>':''}</div>
-        <div class="exlog-tot">${r.sets.length} sets · ${r.vol.toLocaleString()}kg</div>
+        <div class="exlog-tot">${r.side?'<span style="color:var(--acc)">per side</span> · ':''}${r.sets.length} sets · ${r.vol.toLocaleString()}kg</div>
       </div>
       <div class="exlog-sets">${pills}</div>
     </div>`;

@@ -121,6 +121,9 @@ header{position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--
 .exline .es{font-family:'JetBrains Mono';font-size:12.5px;color:var(--mut);margin-top:3px}
 .pr-badge{display:inline-block;background:rgba(200,255,77,.14);color:var(--lime);font-size:10px;font-weight:700;
   padding:2px 7px;border-radius:6px;letter-spacing:.05em;margin-left:6px;text-transform:uppercase}
+/* first time doing an exercise — informative, but not a record, so never lime */
+.new-badge{display:inline-block;background:rgba(92,200,255,.14);color:var(--blue);font-size:10px;font-weight:700;
+  padding:2px 7px;border-radius:6px;letter-spacing:.05em;margin-left:6px;text-transform:uppercase}
 
 /* body metrics grid */
 .bgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-top:4px}
@@ -599,8 +602,11 @@ $('#saveSess').onclick=()=>{
   save.sessions();
   const mine=prsFor(prMap(),sess.id); // derived after the write, so it sees the saved data
   resetDraft();
+  const bits=[];
+  if(mine.prs.length) bits.push(mine.prs.length+' new PR'+(mine.prs.length>1?'s':''));
+  if(mine.news.length) bits.push(mine.news.length+' new exercise'+(mine.news.length>1?'s':''));
   if(editing)toast('Session updated ✓');
-  else if(mine.prs.length)toast('Session saved · '+mine.prs.length+' new PR'+(mine.prs.length>1?'s':'')+'! 🔥',true);
+  else if(bits.length)toast('Session saved · '+bits.join(' · ')+(mine.prs.length?'! 🔥':''),!!mine.prs.length);
   else toast('Session saved ✓');
   go('hist');renderHistory();
 };
@@ -645,7 +651,7 @@ function renderHistory(){
   if(!DB.sessions.length){wrap.innerHTML='<div class="empty"><div class="ic">🏋</div><p>No sessions yet.<br>Tap + to log your first workout.</p></div>';return;}
   const PM=prMap();
   [...DB.sessions].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).forEach(s=>{
-    const {prs}=prsFor(PM,s.id);
+    const {prs,news}=prsFor(PM,s.id);
     const totalSets=s.entries.reduce((a,e)=>a+e.sets.length,0);
     const vol=s.entries.reduce((a,e)=>a+entryVol(e),0);
     const it=document.createElement('div');it.className='hitem';
@@ -653,10 +659,10 @@ function renderHistory(){
       <div class="hitem-top" data-tog>
         <div><div class="date">${fmtDate(s.date)}</div>
           <div class="meta"><span class="br">${s.branch}</span> · ${s.entries.length} exercises · ${totalSets} sets · ${Math.round(vol).toLocaleString()} kg vol</div></div>
-        <div style="display:flex;align-items:center;gap:8px">${prs.length?'<span class="pr-badge">'+prs.length+' PR</span>':''}<span style="color:var(--dim)">▾</span></div>
+        <div style="display:flex;align-items:center;gap:8px">${news.length?'<span class="new-badge">'+news.length+' NEW</span>':''}${prs.length?'<span class="pr-badge">'+prs.length+' PR</span>':''}<span style="color:var(--dim)">▾</span></div>
       </div>
       <div class="hdetail">
-        ${s.entries.map(en=>`<div class="exline"><div class="en">${en.name}${prs.some(p=>p.name===en.name)?'<span class="pr-badge">PR</span>':''}</div>
+        ${s.entries.map(en=>`<div class="exline"><div class="en">${en.name}${prs.some(p=>p.name===en.name)?'<span class="pr-badge">PR</span>':''}${news.includes(en.name)?'<span class="new-badge">New</span>':''}</div>
           <div class="es">${en.sets.map(st=>`${st.reps||'–'}×${st.weight||'–'}kg${st.rpe?' @'+st.rpe:''}`).join('   ·   ')}${
             en.load==='side'?'   ·   <span style="color:var(--acc)">/side</span>':''}</div>
           ${en.machine?`<div class="es" style="color:var(--blue)">⚙ ${en.machine}</div>`:''}
@@ -1040,7 +1046,7 @@ function renderExLog(){
     }).join('');
     return `<div class="exlog-row">
       <div class="exlog-h">
-        <div class="exlog-d">${fmtDate(r.date)}<span class="br">${r.branch}</span>${r.isPR?'<span class="pr-badge">PR</span>':''}</div>
+        <div class="exlog-d">${fmtDate(r.date)}<span class="br">${r.branch}</span>${r.isPR?'<span class="pr-badge">PR</span>':''}${r.isNew?'<span class="new-badge">First</span>':''}</div>
         <div class="exlog-tot">${r.side?'<span style="color:var(--acc)">per side</span> · ':''}${r.sets.length} sets · ${r.vol.toLocaleString()}kg</div>
       </div>
       <div class="exlog-sets">${pills}</div>

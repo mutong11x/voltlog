@@ -35,6 +35,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 input,select,textarea{font-family:inherit;font-size:15px;color:var(--txt);background:var(--bg2);
   border:1px solid var(--line);border-radius:10px;padding:11px 12px;width:100%;outline:none;-webkit-appearance:none}
 input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+/* checkboxes opt out of the reset above, which would strip the tick and stretch them full-width */
+input[type=checkbox]{-webkit-appearance:auto;appearance:auto;width:18px;height:18px;padding:0;flex:0 0 auto;accent-color:var(--acc)}
 select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%237c8b94' stroke-width='1.6' fill='none'/></svg>");
   background-repeat:no-repeat;background-position:right 12px center;padding-right:30px}
 label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:600;display:block;margin:0 0 5px}
@@ -1095,13 +1097,59 @@ $('#addBranch').onclick=()=>{const v=$('#newBranch').value.trim();if(!v)return;i
 const LIB_NOTE='Per-side doubles <b>volume only</b> — top set and est. 1RM stay exactly as logged. '+
   'Use it for one-limb-at-a-time work (single-arm row, split squat), not two-dumbbell lifts. '+
   'Load changes apply to new logs; past sessions keep the type they were logged with.';
-function openLib(){
-  $('#libTitle').textContent='Exercise Library';
-  $('#libNote').innerHTML=LIB_NOTE;
+function openLib(transition){
+  $('#libTitle').textContent=transition?'Tag your unilateral lifts':'Exercise Library';
+  $('#libNote').innerHTML=(transition?'<b style="color:var(--acc)">New:</b> volume now doubles for '+
+    'one-limb-at-a-time work. Everything starts as Standard — mark any per-side lifts below. ':'')+LIB_NOTE;
   renderLib();
-  $('#libFoot').innerHTML='<button class="btn primary" id="libDone">Done</button>';
-  $('#libDone').onclick=()=>$('#libModal').classList.remove('open');
+  // the backfill option stays available permanently: it is the only way to change the load
+  // type recorded on sessions that are already saved. Always starts unchecked.
+  $('#libFoot').innerHTML=
+    `<label style="display:flex;gap:9px;align-items:flex-start;text-transform:none;letter-spacing:0;
+        font-size:12.5px;color:var(--mut);font-weight:500;margin:0 0 10px">
+      <input type="checkbox" id="libBackfill">
+      <span>Also recalculate past sessions to match these load types.
+        <b style="color:var(--warn)">Changes historical volume.</b> Export a backup first.</span>
+    </label>
+    <button class="btn primary" id="libDone">Done</button>`;
+  $('#libDone').onclick=()=>{
+    if($('#libBackfill').checked && !applyLoadToHistory()) return; // cancelled — keep the sheet open
+    $('#libModal').classList.remove('open');
+  };
   $('#libModal').classList.add('open');
+}
+
+/* Resync stored entries to the library's current load types. This is a full resync, not an
+   additive tag: an entry goes back to 'std' if the library now says 'std'. */
+function resyncLoad(apply){
+  const byId={},byName={};
+  DB.exercises.forEach(x=>{byId[x.id]=x;byName[x.name.trim().toLowerCase()]=x;});
+  let entries=0,sess=0;
+  DB.sessions.forEach(s=>{
+    let hit=false;
+    (s.entries||[]).forEach(en=>{
+      const x=byId[en.exId]||byName[(en.name||'').trim().toLowerCase()];
+      if(!x)return;
+      const want=x.load||'std';
+      if((en.load||'std')!==want){ if(apply)en.load=want; entries++; hit=true; }
+    });
+    if(hit)sess++;
+  });
+  return {entries,sess};
+}
+function applyLoadToHistory(){
+  const pre=resyncLoad(false);
+  if(!pre.entries){toast('Past sessions already match the library');return true;}
+  if(!confirm('Update the load type on '+pre.entries+' entr'+(pre.entries>1?'ies':'y')+' across '+
+    pre.sess+' past session'+(pre.sess>1?'s':'')+'?\n\nThis changes historical volume figures. '+
+    'Entries are set to match the library exactly — including back to Standard where the library '+
+    'says Standard.\n\nThis cannot be undone. Export a backup first.')) return false;
+  resyncLoad(true);
+  save.sessions();
+  toast('Recalculated '+pre.sess+' session'+(pre.sess>1?'s':'')+' ✓');
+  const av=document.querySelector('.view.active');
+  if(av&&av.id==='v-hist')renderHistory(); else if(av&&av.id==='v-dash')renderDash();
+  return true;
 }
 function renderLib(){
   const box=$('#libList');const keep=box.scrollTop;box.innerHTML='';
@@ -1188,6 +1236,7 @@ $('#importFile').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
   try{const txt=await f.text();const d=JSON.parse(txt);
     ['branches','exercises','sessions','scans','settings'].forEach(k=>{if(d[k])DB[k]=d[k];});
+    migrateLibrary(); // a backup can predate the current library version
     await Promise.all(Object.values(save).map(fn=>fn()));
     toast('Data imported ✓');$('#moreModal').classList.remove('open');initUI();
   }catch(err){toast('Invalid backup file');}
@@ -1203,6 +1252,9 @@ $('#wipeBtn').onclick=async()=>{
 /* ============================ INIT ============================ */
 function initUI(){
   resetDraft();
+  // one-time sweep for installs that predate load types. Flag is cleared as soon as the
+  // sheet is shown, so a force-quit mid-sweep doesn't nag again.
+  if(DB.settings.tagPrompt){ delete DB.settings.tagPrompt; save.settings(); openLib(true); }
 }
 (async function(){
   try{await loadDB();}catch(e){console.warn(e);}

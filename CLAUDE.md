@@ -1,0 +1,104 @@
+# VOLTLOG — working notes for Claude Code
+
+Mobile-first web app for logging gym workouts and tracking Evolt 360 body-composition scans.
+Single user, single file.
+
+## Hard constraints
+
+**The entire app is `index.html`** — HTML + CSS + JS in one file, no build step, no framework, no
+backend. Editing it and committing is the whole deploy: GitHub Pages redeploys `main` in ~1 min.
+
+Do **not** introduce a build system, framework, bundler, package.json, or backend unless a task
+explicitly asks for it. Do not add abstractions the current scale doesn't need. Favour the
+simplest change that fits the patterns already there.
+
+External deps are two CDN scripts (Chart.js 4.4.1, pdf.js 3.11.174) and Google Fonts. The app is
+therefore **not offline-capable**, which is a known and accepted gap.
+
+## Layout of the file
+
+1. `<head>` — meta (incl. `viewport-fit=cover` + Apple PWA tags), fonts, CDN scripts, then one
+   large `<style>` block. Dark "bioscan" theme, CSS variables on `:root`.
+2. `<body>` — four views (`#v-log`, `#v-hist`, `#v-body`, `#v-dash`), header, bottom nav, FAB, and
+   modals (`#exModal` add-exercise, `#libModal` exercise library, `#moreModal` settings,
+   `#scanModal` scan review, `#toast`).
+3. `<script>` — commented sections: DATA LAYER, HELPERS, LOG VIEW, HISTORY, PDF EXTRACTION,
+   BODY VIEW, DASHBOARD, CHART HELPERS, NAV / MODALS, INIT.
+
+## Persistence
+
+`sget`/`sset` pick the first available of: `window.storage` (inside Claude) → `localStorage`
+(prefix `voltlog:`) → in-memory. All values JSON. Five keys: `branches`, `exercises`, `sessions`,
+`scans`, `settings`, each persisted by a `save.<key>()` helper.
+
+This two-function isolation is deliberate — it's the seam a future Supabase layer plugs into.
+
+## The three data rules
+
+These are the load-bearing decisions. Breaking them causes silent, hard-to-find wrongness.
+
+**1. Derive metrics on read; store only what was logged.** Sets are the facts. Volume
+(`entryVol`) and PRs (`prMap`) are computed every render, never persisted. Storing a derived
+value creates a second source of truth that drifts — PRs used to be stored in a `prs` array and
+were wrong for exactly that reason. If you add a metric, add a function, not a field.
+
+**2. Semantics are snapshotted onto the session entry.** `name`, `cat` and `load` are copied onto
+the entry at save time, so editing an exercise later never rewrites what past sessions mean.
+`loadSessionToDraft` reads `load` from the **entry**, not the library — re-saving an old session
+must not re-stamp it. The only way to change history is the explicit, opt-in "recalculate past
+sessions" in the Exercise Library.
+
+**3. The entry `name` is the analytics key.** `exNames`, `exSessions` and `prMap` all match on
+trimmed lowercase name. Therefore renaming an exercise **backfills stored entries**
+(`renameExercise`) — a library-only rename would split one lift into two progress series. Two
+exercises may never share a name; collisions are rejected.
+
+## Metric definitions
+
+- **Volume** = `Σ (weight × reps)`, **× 2 when `entry.load === "side"`**. One implementation only:
+  `entryVol`. Four callers: `renderHistory`, `renderWeekStats`, `exSessions`, `renderVolChart`.
+  Never re-inline the formula.
+- **`load`** — `"std"` (×1) or `"side"` (one-limb-at-a-time, ×2). Affects **volume only**: top-set
+  weight, `e1rm`, PRs and set counts are never multiplied. A per-side set is logged once and
+  counts as one set. Two-dumbbell both-arms lifts are `"std"`. Missing `load` reads as `"std"`.
+- **est. 1RM** — Epley, `weight * (1 + reps/30)` (`e1rm`). Returns 0 without a weight.
+- **PRs** — derived by `prMap()`: one chronological pass (date, then id) keeping a running best
+  per exercise, so a PR means "beat everything logged *before* this session". Entries are pooled
+  per exercise within a session. A first-ever appearance emits a `news` marker (blue `New` badge),
+  not a PR; a PR also requires a non-zero load, so bodyweight lifts only ever show `New`. Read
+  with `prsFor(map, sessionId)`.
+
+## Migrations
+
+`migrateLibrary()` runs on load and after a JSON import (a backup can predate the current
+version). Bump `LIB_VER` and add a **guarded block** — `if(from < N){ ... }` — so installs never
+re-run earlier steps. Currently at 4: v2 split the deadlift variants, v3 added `load` to the
+library, v4 deleted the stored `prs` arrays. If a migration touches sessions, make sure the
+`loadDB` call site persists them.
+
+Migrating **input** data (like `load`) retroactively needs explicit user consent; migrating
+**derived** data (like `prs`) does not, because it's recomputable.
+
+## Checking your work
+
+There is no test suite and no linter. At minimum, syntax-check the inline script:
+
+```bash
+python3 -c "import re;print(re.findall(r'<script>(.*?)</script>',open('index.html').read(),re.S)[-1])" > /tmp/app.js
+node --check /tmp/app.js
+```
+
+Beyond that, the productive pattern is to extract the real function from `index.html` with a
+regex, `eval` it against stubs in Node, and assert behaviour — and for anything user-visible, load
+the page in headless Chrome and drive the actual save/render paths rather than trusting a read of
+the code. Past work here has caught a checkbox destroyed by the global `input` reset and a PR
+double-count that only appears when one exercise is logged twice in a session; neither was
+visible by inspection.
+
+## Conventions
+
+- Commit in small, separately-committed steps with descriptive messages explaining *why*.
+- Match the surrounding code's density and idiom: terse, comma-chained statements, `$` for
+  `querySelector`, delegated listeners, template literals for markup.
+- Comment the non-obvious *reasoning*, not the mechanics.
+- Mobile-first: the layout must hold at 320px, and wide content scrolls in its own container.

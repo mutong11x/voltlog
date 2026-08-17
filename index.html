@@ -172,6 +172,10 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 /* Add-exercise sheet: fixed height, results scroll inside — prevents per-keystroke resize/reflow */
 #exModal .sheet{height:82vh;max-height:82vh;overflow:hidden;display:flex;flex-direction:column}
 #exModal #exResults{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:12px}
+/* Library sheet: same fixed-height pattern so the footer stays put while the list scrolls */
+#libModal .sheet{height:82vh;max-height:82vh;overflow:hidden;display:flex;flex-direction:column}
+#libModal #libList{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:8px}
+#libModal #libFoot{flex:0 0 auto;padding-top:10px;border-top:1px solid var(--line)}
 @keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
 .grab{width:38px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 14px}
 .empty{text-align:center;color:var(--dim);padding:40px 20px}
@@ -191,6 +195,14 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 .seg{display:flex;gap:4px;background:var(--bg2);border:1px solid var(--line);border-radius:11px;padding:4px;margin:10px 0 4px}
 .seg button{flex:1;padding:8px 4px;border-radius:8px;font-size:12px;font-weight:700;color:var(--mut);letter-spacing:.02em;transition:.15s;white-space:nowrap}
 .seg button.on{background:var(--acc);color:#04231f}
+/* exercise library rows */
+.libitem{background:var(--surf);border:1px solid var(--line);border-radius:11px;padding:10px 11px;margin:8px 0}
+.libitem .r1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.libitem .nm{font-weight:600;font-size:14.5px}
+.libitem .r2{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;margin-top:8px}
+.libitem .r2 .seg{margin:0}
+.libitem select{padding:8px 10px;font-size:13px}
+.libhead{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin:14px 0 2px}
 /* per-session exercise log */
 .exlog{margin-top:14px;border-top:1px solid var(--line);padding-top:8px}
 .exlog-row{padding:11px 0;border-bottom:1px dashed var(--line)}
@@ -318,6 +330,15 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
   <div id="exResults" style="margin-top:12px"></div>
 </div></div>
 
+<!-- exercise library modal (category + load type) -->
+<div class="modal" id="libModal"><div class="sheet">
+  <div class="grab"></div>
+  <h2 id="libTitle" style="font-size:20px">Exercise Library</h2>
+  <p class="note" id="libNote" style="margin:5px 0 0"></p>
+  <div id="libList"></div>
+  <div id="libFoot"></div>
+</div></div>
+
 <!-- more / settings modal -->
 <div class="modal" id="moreModal"><div class="sheet">
   <div class="grab"></div>
@@ -326,6 +347,8 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
   <div class="sect-h" style="margin-top:6px"><h2>Branches</h2><span class="line"></span></div>
   <div class="chips" id="branchMgr" style="margin-bottom:8px"></div>
   <div class="miniadd"><input id="newBranch" placeholder="Add a gym / branch"><button class="btn sm primary" id="addBranch">Add</button></div>
+  <div class="sect-h"><h2>Exercises</h2><span class="line"></span></div>
+  <button class="btn ghost" id="libBtn">≡ Exercise library</button>
   <div class="sect-h"><h2>Backup</h2><span class="line"></span></div>
   <button class="btn ghost" id="exportBtn" style="margin-bottom:8px">⤓ Export all data (JSON)</button>
   <button class="btn ghost" id="importBtn">⤒ Import data (JSON)</button>
@@ -504,6 +527,7 @@ function renderExResults(q){
       // added as Other/std so logging isn't interrupted — refine it in Settings › Exercise Library
       const nx={id:uid(),name:q.trim(),cat:'Other',load:'std',custom:true};
       DB.exercises.push(nx);save.exercises();addExerciseToDraft(nx);
+      toast('Added · set its category & load in Settings › Exercise library');
     };
     box.appendChild(add);
   }
@@ -1065,6 +1089,61 @@ function renderBranchMgr(){
     c.appendChild(el);});
 }
 $('#addBranch').onclick=()=>{const v=$('#newBranch').value.trim();if(!v)return;if(!DB.branches.includes(v))DB.branches.push(v);$('#newBranch').value='';save.branches();renderBranchMgr();renderBranchChips();};
+
+/* EXERCISE LIBRARY — category + load type per exercise */
+const LIB_NOTE='Per-side doubles <b>volume only</b> — top set and est. 1RM stay exactly as logged. '+
+  'Use it for one-limb-at-a-time work (single-arm row, split squat), not two-dumbbell lifts. '+
+  'Load changes apply to new logs; past sessions keep the type they were logged with.';
+function openLib(){
+  $('#libTitle').textContent='Exercise Library';
+  $('#libNote').innerHTML=LIB_NOTE;
+  renderLib();
+  $('#libFoot').innerHTML='<button class="btn primary" id="libDone">Done</button>';
+  $('#libDone').onclick=()=>$('#libModal').classList.remove('open');
+  $('#libModal').classList.add('open');
+}
+function renderLib(){
+  const box=$('#libList');const keep=box.scrollTop;box.innerHTML='';
+  const list=[...DB.exercises].sort((a,b)=>a.cat.localeCompare(b.cat)||a.name.localeCompare(b.name));
+  let cur='';
+  list.forEach(x=>{
+    if(x.cat!==cur){cur=x.cat;const h=document.createElement('div');h.className='libhead';
+      h.style.color=CAT_COLORS[cur]||CAT_COLORS.Other;h.textContent=cur;box.appendChild(h);}
+    const side=x.load==='side';
+    const it=document.createElement('div');it.className='libitem';
+    it.innerHTML=`
+      <div class="r1"><div class="nm">${x.name}</div>
+        ${x.custom?`<button class="del-x" data-rmlib="${x.id}">delete</button>`:''}</div>
+      <div class="r2">
+        <select data-libcat="${x.id}">${Object.keys(CAT_COLORS).map(c=>`<option${c===x.cat?' selected':''}>${c}</option>`).join('')}</select>
+        <div class="seg">
+          <button data-libload="${x.id}" data-l="std" class="${side?'':'on'}">Standard</button>
+          <button data-libload="${x.id}" data-l="side" class="${side?'on':''}">Per side</button>
+        </div>
+      </div>`;
+    box.appendChild(it);
+  });
+  box.scrollTop=keep;
+}
+$('#libList').addEventListener('change',e=>{
+  const id=e.target.dataset.libcat;if(id===undefined)return;
+  const x=DB.exercises.find(o=>o.id===id);if(!x)return;
+  x.cat=e.target.value;save.exercises();renderLib(); // row moves to its new group
+});
+$('#libList').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.libload!==undefined){
+    const x=DB.exercises.find(o=>o.id===b.dataset.libload);if(!x)return;
+    x.load=b.dataset.l;save.exercises();
+    // toggle in place rather than re-render, so a long sweep doesn't lose scroll position
+    [...b.parentElement.children].forEach(btn=>btn.classList.toggle('on',btn.dataset.l===x.load));
+  } else if(b.dataset.rmlib!==undefined){
+    const x=DB.exercises.find(o=>o.id===b.dataset.rmlib);if(!x)return;
+    if(!confirm('Remove "'+x.name+'" from the library?\n\nPast sessions keep the entries you already logged.'))return;
+    DB.exercises=DB.exercises.filter(o=>o.id!==x.id);save.exercises();renderLib();
+  }
+});
+$('#libBtn').onclick=()=>{$('#moreModal').classList.remove('open');openLib();};
 
 /* backup */
 $('#exportBtn').onclick=()=>{

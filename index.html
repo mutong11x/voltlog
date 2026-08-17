@@ -400,6 +400,11 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 const e1rm=(w,r)=> (!w||!r)?0 : +(w*(1+r/30)).toFixed(1);
+/* Volume multiplier: one-limb-at-a-time work is logged once but trains both sides, so it
+   counts double for VOLUME ONLY — never for top-set weight, e1rm, PRs or set counts.
+   Read from the session entry (not the live library) so history stays stable; missing = std. */
+const loadMult=en=>(en&&en.load==='side')?2:1;
+const entryVol=en=>en.sets.reduce((a,st)=>a+(st.weight||0)*(st.reps||0),0)*loadMult(en);
 const fmtDate=s=>{const d=new Date(s+'T00:00');return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'});};
 const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
 function toast(msg,pr){const t=$('#toast');t.textContent=msg;t.className=pr?'show pr':'show';clearTimeout(t._t);t._t=setTimeout(()=>t.className='',2400);}
@@ -577,7 +582,7 @@ function renderHistory(){
   if(!DB.sessions.length){wrap.innerHTML='<div class="empty"><div class="ic">🏋</div><p>No sessions yet.<br>Tap + to log your first workout.</p></div>';return;}
   [...DB.sessions].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).forEach(s=>{
     const totalSets=s.entries.reduce((a,e)=>a+e.sets.length,0);
-    const vol=s.entries.reduce((a,e)=>a+e.sets.reduce((x,st)=>x+(st.weight||0)*(st.reps||0),0),0);
+    const vol=s.entries.reduce((a,e)=>a+entryVol(e),0);
     const it=document.createElement('div');it.className='hitem';
     it.innerHTML=`
       <div class="hitem-top" data-tog>
@@ -901,7 +906,7 @@ function renderDash(){
 function renderWeekStats(){
   const wk=weekKey(todayStr());
   const wkSess=DB.sessions.filter(s=>weekKey(s.date)===wk);
-  const vol=wkSess.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+e.sets.reduce((y,st)=>y+(st.weight||0)*(st.reps||0),0),0),0);
+  const vol=wkSess.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+entryVol(e),0),0);
   const sets=wkSess.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+e.sets.length,0),0);
   const allPr=DB.sessions.flatMap(s=>s.prs||[]).filter(p=>weekKey(p.date)===wk).length;
   const tiles=[['Sessions',wkSess.length,'',CAT_COLORS.Chest],['Total sets',sets,'',CAT_COLORS.Back],
@@ -916,14 +921,17 @@ let curMetric='1rm';
 // all sessions containing curEx, oldest first, with per-session aggregates + the sets themselves
 function exSessions(){
   return [...DB.sessions].sort((a,b)=>a.date.localeCompare(b.date)).map(s=>{
-    const sets=[];s.entries.forEach(e=>{if(e.name===curEx)e.sets.forEach(st=>sets.push(st));});
+    // volume accumulates per ENTRY (each carries its own load type); sets stay flat for top/e1rm
+    const sets=[];let rawVol=0,side=false;
+    s.entries.forEach(e=>{if(e.name!==curEx)return;
+      e.sets.forEach(st=>sets.push(st));rawVol+=entryVol(e);if(e.load==='side')side=true;});
     if(!sets.length)return null;
     const top=Math.max(...sets.map(x=>x.weight||0));
     const orm=Math.max(...sets.map(x=>e1rm(x.weight,x.reps)));
-    const vol=Math.round(sets.reduce((a,x)=>a+(x.weight||0)*(x.reps||0),0));
+    const vol=Math.round(rawVol);
     const reps=sets.reduce((a,x)=>a+(x.reps||0),0);
     const isPR=(s.prs||[]).some(p=>p.name===curEx);
-    return {date:s.date,branch:s.branch,sets,top,orm,vol,reps,isPR};
+    return {date:s.date,branch:s.branch,sets,top,orm,vol,reps,isPR,side};
   }).filter(Boolean);
 }
 const metricVal=(r,m)=>m==='top'?r.top:m==='1rm'?r.orm:m==='vol'?r.vol:r.reps;
@@ -977,7 +985,7 @@ function renderVolChart(){
   const cats=Object.keys(CAT_COLORS);
   const data={};cats.forEach(c=>data[c]=weeks.map(()=>0));
   DB.sessions.forEach(s=>{const wk=weekKey(s.date);const wi=weeks.indexOf(wk);if(wi<0)return;
-    s.entries.forEach(e=>{const c=CAT_COLORS[e.cat]?e.cat:'Other';const v=e.sets.reduce((x,st)=>x+(st.weight||0)*(st.reps||0),0);data[c][wi]+=v;});});
+    s.entries.forEach(e=>{const c=CAT_COLORS[e.cat]?e.cat:'Other';data[c][wi]+=entryVol(e);});});
   const used=cats.filter(c=>data[c].some(v=>v>0));
   dashCharts.push(new Chart($('#volChart'),{type:'bar',data:{labels:weeks.map(w=>fmtDate(w)),
     datasets:used.map(c=>({label:c,data:data[c],backgroundColor:CAT_COLORS[c],borderRadius:3,stack:'v'}))},

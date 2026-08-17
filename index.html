@@ -198,7 +198,7 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 /* exercise library rows */
 .libitem{background:var(--surf);border:1px solid var(--line);border-radius:11px;padding:10px 11px;margin:8px 0}
 .libitem .r1{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.libitem .nm{font-weight:600;font-size:14.5px}
+.libitem .nm{font-weight:600;font-size:14.5px;padding:7px 9px}
 .libitem .r2{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;margin-top:8px}
 .libitem .r2 .seg{margin:0}
 .libitem select{padding:8px 10px;font-size:13px}
@@ -442,6 +442,7 @@ const loadMult=en=>(en&&en.load==='side')?2:1;
 const entryVol=en=>en.sets.reduce((a,st)=>a+(st.weight||0)*(st.reps||0),0)*loadMult(en);
 const fmtDate=s=>{const d=new Date(s+'T00:00');return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'});};
 const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 function toast(msg,pr){const t=$('#toast');t.textContent=msg;t.className=pr?'show pr':'show';clearTimeout(t._t);t._t=setTimeout(()=>t.className='',2400);}
 function weekKey(d){const dt=new Date(d+'T00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
 
@@ -1112,7 +1113,7 @@ function renderLib(){
     const side=x.load==='side';
     const it=document.createElement('div');it.className='libitem';
     it.innerHTML=`
-      <div class="r1"><div class="nm">${x.name}</div>
+      <div class="r1"><input class="nm" data-libname="${x.id}" value="${esc(x.name)}" autocomplete="off" spellcheck="false" enterkeyhint="done">
         ${x.custom?`<button class="del-x" data-rmlib="${x.id}">delete</button>`:''}</div>
       <div class="r2">
         <select data-libcat="${x.id}">${Object.keys(CAT_COLORS).map(c=>`<option${c===x.cat?' selected':''}>${c}</option>`).join('')}</select>
@@ -1125,10 +1126,41 @@ function renderLib(){
   });
   box.scrollTop=keep;
 }
+/* A rename is an identity correction, not a change of meaning, so it propagates BACKWARDS
+   through stored sessions and PR records. Renaming the library alone would split the
+   Exercise Progress chart in two, because exNames/exSessions key off the entry name. */
+function renameExercise(x,raw){
+  const nn=(raw||'').trim();
+  if(!nn||nn===x.name) return false;
+  if(DB.exercises.some(o=>o.id!==x.id && o.name.trim().toLowerCase()===nn.toLowerCase())){
+    toast('“'+nn+'” is already in the library');return false;
+  }
+  const old=x.name;
+  const match=en=>en.exId===x.id||en.name===old; // id first; name catches imported backups
+  const hits=DB.sessions.filter(s=>(s.entries||[]).some(match)).length;
+  if(hits && !confirm('Rename “'+old+'” to “'+nn+'”?\n\nThis also renames it in '+hits+' past session'+
+    (hits>1?'s':'')+' and in your PR history, so its progress chart stays one continuous series.')) return false;
+  x.name=nn;
+  DB.sessions.forEach(s=>{
+    (s.entries||[]).forEach(en=>{if(match(en))en.name=nn;});
+    (s.prs||[]).forEach(p=>{if(p.name===old)p.name=nn;}); // else PR badges stop matching
+  });
+  draft.entries.forEach(en=>{if(match(en))en.name=nn;});  // an unsaved draft too
+  if(curEx===old)curEx=nn;                                // keep the dashboard selection
+  save.exercises();save.sessions();renderExList();
+  toast(hits?'Renamed here and in '+hits+' session'+(hits>1?'s':'')+' ✓':'Renamed ✓');
+  return true;
+}
 $('#libList').addEventListener('change',e=>{
-  const id=e.target.dataset.libcat;if(id===undefined)return;
-  const x=DB.exercises.find(o=>o.id===id);if(!x)return;
-  x.cat=e.target.value;save.exercises();renderLib(); // row moves to its new group
+  const t=e.target;
+  if(t.dataset.libcat!==undefined){
+    const x=DB.exercises.find(o=>o.id===t.dataset.libcat);if(!x)return;
+    x.cat=t.value;save.exercises();renderLib(); // row moves to its new group
+  } else if(t.dataset.libname!==undefined){
+    const x=DB.exercises.find(o=>o.id===t.dataset.libname);if(!x)return;
+    if(!renameExercise(x,t.value)) t.value=x.name; // rejected or cancelled — put the old name back
+    renderLib();
+  }
 });
 $('#libList').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;

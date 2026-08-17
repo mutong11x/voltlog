@@ -35,6 +35,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 input,select,textarea{font-family:inherit;font-size:15px;color:var(--txt);background:var(--bg2);
   border:1px solid var(--line);border-radius:10px;padding:11px 12px;width:100%;outline:none;-webkit-appearance:none}
 input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+/* checkboxes opt out of the reset above, which would strip the tick and stretch them full-width */
+input[type=checkbox]{-webkit-appearance:auto;appearance:auto;width:18px;height:18px;padding:0;flex:0 0 auto;accent-color:var(--acc)}
 select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%237c8b94' stroke-width='1.6' fill='none'/></svg>");
   background-repeat:no-repeat;background-position:right 12px center;padding-right:30px}
 label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:600;display:block;margin:0 0 5px}
@@ -172,6 +174,10 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 /* Add-exercise sheet: fixed height, results scroll inside — prevents per-keystroke resize/reflow */
 #exModal .sheet{height:82vh;max-height:82vh;overflow:hidden;display:flex;flex-direction:column}
 #exModal #exResults{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:12px}
+/* Library sheet: same fixed-height pattern so the footer stays put while the list scrolls */
+#libModal .sheet{height:82vh;max-height:82vh;overflow:hidden;display:flex;flex-direction:column}
+#libModal #libList{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:8px}
+#libModal #libFoot{flex:0 0 auto;padding-top:10px;border-top:1px solid var(--line)}
 @keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
 .grab{width:38px;height:4px;border-radius:4px;background:var(--line);margin:0 auto 14px}
 .empty{text-align:center;color:var(--dim);padding:40px 20px}
@@ -191,6 +197,14 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 .seg{display:flex;gap:4px;background:var(--bg2);border:1px solid var(--line);border-radius:11px;padding:4px;margin:10px 0 4px}
 .seg button{flex:1;padding:8px 4px;border-radius:8px;font-size:12px;font-weight:700;color:var(--mut);letter-spacing:.02em;transition:.15s;white-space:nowrap}
 .seg button.on{background:var(--acc);color:#04231f}
+/* exercise library rows */
+.libitem{background:var(--surf);border:1px solid var(--line);border-radius:11px;padding:10px 11px;margin:8px 0}
+.libitem .r1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.libitem .nm{font-weight:600;font-size:14.5px;padding:7px 9px}
+.libitem .r2{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;margin-top:8px}
+.libitem .r2 .seg{margin:0}
+.libitem select{padding:8px 10px;font-size:13px}
+.libhead{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin:14px 0 2px}
 /* per-session exercise log */
 .exlog{margin-top:14px;border-top:1px solid var(--line);padding-top:8px}
 .exlog-row{padding:11px 0;border-bottom:1px dashed var(--line)}
@@ -318,6 +332,15 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
   <div id="exResults" style="margin-top:12px"></div>
 </div></div>
 
+<!-- exercise library modal (category + load type) -->
+<div class="modal" id="libModal"><div class="sheet">
+  <div class="grab"></div>
+  <h2 id="libTitle" style="font-size:20px">Exercise Library</h2>
+  <p class="note" id="libNote" style="margin:5px 0 0"></p>
+  <div id="libList"></div>
+  <div id="libFoot"></div>
+</div></div>
+
 <!-- more / settings modal -->
 <div class="modal" id="moreModal"><div class="sheet">
   <div class="grab"></div>
@@ -326,6 +349,8 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
   <div class="sect-h" style="margin-top:6px"><h2>Branches</h2><span class="line"></span></div>
   <div class="chips" id="branchMgr" style="margin-bottom:8px"></div>
   <div class="miniadd"><input id="newBranch" placeholder="Add a gym / branch"><button class="btn sm primary" id="addBranch">Add</button></div>
+  <div class="sect-h"><h2>Exercises</h2><span class="line"></span></div>
+  <button class="btn ghost" id="libBtn">≡ Exercise library</button>
   <div class="sect-h"><h2>Backup</h2><span class="line"></span></div>
   <button class="btn ghost" id="exportBtn" style="margin-bottom:8px">⤓ Export all data (JSON)</button>
   <button class="btn ghost" id="importBtn">⤒ Import data (JSON)</button>
@@ -369,21 +394,33 @@ const CAT_COLORS = {Chest:'#1fe6c8',Back:'#5cc8ff',Legs:'#c8ff4d',Shoulders:'#ff
 
 let DB = { branches:[], exercises:[], sessions:[], scans:[], settings:{} };
 
+const seedExercises=()=>SEED_EX.map((e,i)=>({id:'s'+i,name:e[0],cat:e[1],load:'std'}));
+
 async function loadDB(){
   DB.branches  = await sget('branches')  || ['Main'];
-  DB.exercises = await sget('exercises') || SEED_EX.map((e,i)=>({id:'s'+i,name:e[0],cat:e[1]}));
+  DB.exercises = await sget('exercises') || seedExercises();
   DB.sessions  = await sget('sessions')  || [];
   DB.scans     = await sget('scans')     || [];
   DB.settings  = await sget('settings')  || {lastBranch:DB.branches[0]};
   if(migrateLibrary()){ save.exercises(); save.settings(); }
 }
-const LIB_VER = 2;
+const LIB_VER = 3;
 // one-time updates to the seeded exercise library for installs that already exist
 function migrateLibrary(){
-  if((DB.settings.libVer||0) >= LIB_VER) return false;
-  DB.exercises = DB.exercises.filter(x => x.name.trim().toLowerCase() !== 'deadlift'); // drop ambiguous entry
-  [['Conventional Deadlift','Back'],['Sumo Deadlift','Back'],['Romanian Deadlift','Legs'],['Rear Delt Fly','Shoulders']]
-    .forEach(([name,cat])=>{ if(!DB.exercises.some(x=>x.name.trim().toLowerCase()===name.toLowerCase())) DB.exercises.push({id:uid(),name,cat}); });
+  const from=(DB.settings.libVer||0);
+  if(from >= LIB_VER) return false;
+  if(from < 2){
+    DB.exercises = DB.exercises.filter(x => x.name.trim().toLowerCase() !== 'deadlift'); // drop ambiguous entry
+    [['Conventional Deadlift','Back'],['Sumo Deadlift','Back'],['Romanian Deadlift','Legs'],['Rear Delt Fly','Shoulders']]
+      .forEach(([name,cat])=>{ if(!DB.exercises.some(x=>x.name.trim().toLowerCase()===name.toLowerCase())) DB.exercises.push({id:uid(),name,cat}); });
+  }
+  if(from < 3){
+    // load type for per-side volume. Library only — stored sessions keep whatever they were
+    // logged with (entryVol treats a missing load as 'std'), so historical volume can't shift.
+    DB.exercises.forEach(x=>{ if(!x.load) x.load='std'; });
+    // existing installs get a one-time prompt to tag their unilateral lifts; fresh ones have nothing to transition
+    if(DB.sessions.length) DB.settings.tagPrompt = true;
+  }
   DB.settings.libVer = LIB_VER;
   return true;
 }
@@ -400,8 +437,14 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 const e1rm=(w,r)=> (!w||!r)?0 : +(w*(1+r/30)).toFixed(1);
+/* Volume multiplier: one-limb-at-a-time work is logged once but trains both sides, so it
+   counts double for VOLUME ONLY — never for top-set weight, e1rm, PRs or set counts.
+   Read from the session entry (not the live library) so history stays stable; missing = std. */
+const loadMult=en=>(en&&en.load==='side')?2:1;
+const entryVol=en=>en.sets.reduce((a,st)=>a+(st.weight||0)*(st.reps||0),0)*loadMult(en);
 const fmtDate=s=>{const d=new Date(s+'T00:00');return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'});};
 const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
+const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 function toast(msg,pr){const t=$('#toast');t.textContent=msg;t.className=pr?'show pr':'show';clearTimeout(t._t);t._t=setTimeout(()=>t.className='',2400);}
 function weekKey(d){const dt=new Date(d+'T00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
 
@@ -433,7 +476,8 @@ function renderExList(){
     const col=CAT_COLORS[en.cat]||CAT_COLORS.Other;
     card.innerHTML=`
       <div class="ex-top">
-        <div><div class="nm">${en.name}</div><div class="cat" style="color:${col}">${en.cat||'Other'}</div></div>
+        <div><div class="nm">${en.name}</div><div class="cat" style="color:${col}">${en.cat||'Other'}${
+          en.load==='side'?'<span class="tagpill ok" style="margin-left:6px">per side · ×2 vol</span>':''}</div></div>
         <button class="del-x" data-del="${ei}">✕</button>
       </div>
       <div class="ex-body">
@@ -484,9 +528,10 @@ function renderExResults(q){
     const add=document.createElement('button');add.className='btn primary';add.style.marginBottom='10px';
     add.textContent='+ Add "'+q.trim()+'" as custom';
     add.onclick=()=>{
-      // ask category quickly via prompt-less cycle: default Other, let user change in chip
-      const nx={id:uid(),name:q.trim(),cat:'Other',custom:true};
+      // added as Other/std so logging isn't interrupted — refine it in Settings › Exercise Library
+      const nx={id:uid(),name:q.trim(),cat:'Other',load:'std',custom:true};
       DB.exercises.push(nx);save.exercises();addExerciseToDraft(nx);
+      toast('Added · set its category & load in Settings › Exercise library');
     };
     box.appendChild(add);
   }
@@ -500,7 +545,7 @@ function renderExResults(q){
   });
 }
 function addExerciseToDraft(x){
-  draft.entries.push({exId:x.id,name:x.name,cat:x.cat,sets:[blankSet()],machine:'',remarks:''});
+  draft.entries.push({exId:x.id,name:x.name,cat:x.cat,load:x.load||'std',sets:[blankSet()],machine:'',remarks:''});
   $('#exModal').classList.remove('open');renderExList();
 }
 $('#exSearch').addEventListener('input',e=>renderExResults(e.target.value));
@@ -521,8 +566,10 @@ function resetDraft(){
 }
 function loadSessionToDraft(id){
   const s=DB.sessions.find(x=>x.id===id);if(!s)return;
+  // load comes from the stored ENTRY, not the library — re-saving an old session must not
+  // re-stamp it with a load type the exercise only acquired later (same reason as name/cat)
   draft={branch:s.branch,editingId:s.id,entries:(s.entries||[]).map(en=>({
-    exId:en.exId,name:en.name,cat:en.cat,machine:en.machine||'',remarks:en.remarks||'',
+    exId:en.exId,name:en.name,cat:en.cat,load:en.load||'std',machine:en.machine||'',remarks:en.remarks||'',
     sets:(en.sets&&en.sets.length?en.sets:[{}]).map(st=>({reps:st.reps??'',weight:st.weight??'',rpe:st.rpe??'',type:st.type||'W'}))
   }))};
   $('#sessDate').value=s.date;$('#sessBw').value=s.bodyweight??'';$('#sessNotes').value=s.notes||'';
@@ -534,7 +581,7 @@ $('#cancelEdit').onclick=()=>{resetDraft();go('hist');renderHistory();};
 $('#saveSess').onclick=()=>{
   if(!draft.branch){toast('Select a gym branch first');return;}
   const entries=draft.entries.map(en=>({
-    exId:en.exId,name:en.name,cat:en.cat,machine:en.machine,remarks:en.remarks,
+    exId:en.exId,name:en.name,cat:en.cat,load:en.load||'std',machine:en.machine,remarks:en.remarks,
     sets:en.sets.filter(s=>num(s.reps)||num(s.weight)).map(s=>({reps:num(s.reps),weight:num(s.weight),rpe:num(s.rpe),type:s.type||'W'}))
   })).filter(en=>en.sets.length);
   if(!entries.length){toast('Add at least one set');return;}
@@ -577,7 +624,7 @@ function renderHistory(){
   if(!DB.sessions.length){wrap.innerHTML='<div class="empty"><div class="ic">🏋</div><p>No sessions yet.<br>Tap + to log your first workout.</p></div>';return;}
   [...DB.sessions].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).forEach(s=>{
     const totalSets=s.entries.reduce((a,e)=>a+e.sets.length,0);
-    const vol=s.entries.reduce((a,e)=>a+e.sets.reduce((x,st)=>x+(st.weight||0)*(st.reps||0),0),0);
+    const vol=s.entries.reduce((a,e)=>a+entryVol(e),0);
     const it=document.createElement('div');it.className='hitem';
     it.innerHTML=`
       <div class="hitem-top" data-tog>
@@ -587,7 +634,8 @@ function renderHistory(){
       </div>
       <div class="hdetail">
         ${s.entries.map(en=>`<div class="exline"><div class="en">${en.name}${s.prs&&s.prs.some(p=>p.name===en.name)?'<span class="pr-badge">PR</span>':''}</div>
-          <div class="es">${en.sets.map(st=>`${st.reps||'–'}×${st.weight||'–'}kg${st.rpe?' @'+st.rpe:''}`).join('   ·   ')}</div>
+          <div class="es">${en.sets.map(st=>`${st.reps||'–'}×${st.weight||'–'}kg${st.rpe?' @'+st.rpe:''}`).join('   ·   ')}${
+            en.load==='side'?'   ·   <span style="color:var(--acc)">/side</span>':''}</div>
           ${en.machine?`<div class="es" style="color:var(--blue)">⚙ ${en.machine}</div>`:''}
           ${en.remarks?`<div class="es">“${en.remarks}”</div>`:''}</div>`).join('')}
         ${s.bodyweight?`<div class="es" style="margin-top:8px">Bodyweight: ${s.bodyweight} kg</div>`:''}
@@ -901,7 +949,7 @@ function renderDash(){
 function renderWeekStats(){
   const wk=weekKey(todayStr());
   const wkSess=DB.sessions.filter(s=>weekKey(s.date)===wk);
-  const vol=wkSess.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+e.sets.reduce((y,st)=>y+(st.weight||0)*(st.reps||0),0),0),0);
+  const vol=wkSess.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+entryVol(e),0),0);
   const sets=wkSess.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+e.sets.length,0),0);
   const allPr=DB.sessions.flatMap(s=>s.prs||[]).filter(p=>weekKey(p.date)===wk).length;
   const tiles=[['Sessions',wkSess.length,'',CAT_COLORS.Chest],['Total sets',sets,'',CAT_COLORS.Back],
@@ -916,14 +964,17 @@ let curMetric='1rm';
 // all sessions containing curEx, oldest first, with per-session aggregates + the sets themselves
 function exSessions(){
   return [...DB.sessions].sort((a,b)=>a.date.localeCompare(b.date)).map(s=>{
-    const sets=[];s.entries.forEach(e=>{if(e.name===curEx)e.sets.forEach(st=>sets.push(st));});
+    // volume accumulates per ENTRY (each carries its own load type); sets stay flat for top/e1rm
+    const sets=[];let rawVol=0,side=false;
+    s.entries.forEach(e=>{if(e.name!==curEx)return;
+      e.sets.forEach(st=>sets.push(st));rawVol+=entryVol(e);if(e.load==='side')side=true;});
     if(!sets.length)return null;
     const top=Math.max(...sets.map(x=>x.weight||0));
     const orm=Math.max(...sets.map(x=>e1rm(x.weight,x.reps)));
-    const vol=Math.round(sets.reduce((a,x)=>a+(x.weight||0)*(x.reps||0),0));
+    const vol=Math.round(rawVol);
     const reps=sets.reduce((a,x)=>a+(x.reps||0),0);
     const isPR=(s.prs||[]).some(p=>p.name===curEx);
-    return {date:s.date,branch:s.branch,sets,top,orm,vol,reps,isPR};
+    return {date:s.date,branch:s.branch,sets,top,orm,vol,reps,isPR,side};
   }).filter(Boolean);
 }
 const metricVal=(r,m)=>m==='top'?r.top:m==='1rm'?r.orm:m==='vol'?r.vol:r.reps;
@@ -964,7 +1015,7 @@ function renderExLog(){
     return `<div class="exlog-row">
       <div class="exlog-h">
         <div class="exlog-d">${fmtDate(r.date)}<span class="br">${r.branch}</span>${r.isPR?'<span class="pr-badge">PR</span>':''}</div>
-        <div class="exlog-tot">${r.sets.length} sets · ${r.vol.toLocaleString()}kg</div>
+        <div class="exlog-tot">${r.side?'<span style="color:var(--acc)">per side</span> · ':''}${r.sets.length} sets · ${r.vol.toLocaleString()}kg</div>
       </div>
       <div class="exlog-sets">${pills}</div>
     </div>`;
@@ -977,7 +1028,7 @@ function renderVolChart(){
   const cats=Object.keys(CAT_COLORS);
   const data={};cats.forEach(c=>data[c]=weeks.map(()=>0));
   DB.sessions.forEach(s=>{const wk=weekKey(s.date);const wi=weeks.indexOf(wk);if(wi<0)return;
-    s.entries.forEach(e=>{const c=CAT_COLORS[e.cat]?e.cat:'Other';const v=e.sets.reduce((x,st)=>x+(st.weight||0)*(st.reps||0),0);data[c][wi]+=v;});});
+    s.entries.forEach(e=>{const c=CAT_COLORS[e.cat]?e.cat:'Other';data[c][wi]+=entryVol(e);});});
   const used=cats.filter(c=>data[c].some(v=>v>0));
   dashCharts.push(new Chart($('#volChart'),{type:'bar',data:{labels:weeks.map(w=>fmtDate(w)),
     datasets:used.map(c=>({label:c,data:data[c],backgroundColor:CAT_COLORS[c],borderRadius:3,stack:'v'}))},
@@ -1044,6 +1095,138 @@ function renderBranchMgr(){
 }
 $('#addBranch').onclick=()=>{const v=$('#newBranch').value.trim();if(!v)return;if(!DB.branches.includes(v))DB.branches.push(v);$('#newBranch').value='';save.branches();renderBranchMgr();renderBranchChips();};
 
+/* EXERCISE LIBRARY — category + load type per exercise */
+const LIB_NOTE='Per-side doubles <b>volume only</b> — top set and est. 1RM stay exactly as logged. '+
+  'Use it for one-limb-at-a-time work (single-arm row, split squat), not two-dumbbell lifts. '+
+  'Load changes apply to new logs; past sessions keep the type they were logged with.';
+function openLib(transition){
+  $('#libTitle').textContent=transition?'Tag your unilateral lifts':'Exercise Library';
+  $('#libNote').innerHTML=(transition?'<b style="color:var(--acc)">New:</b> volume now doubles for '+
+    'one-limb-at-a-time work. Everything starts as Standard — mark any per-side lifts below. ':'')+LIB_NOTE;
+  renderLib();
+  // the backfill option stays available permanently: it is the only way to change the load
+  // type recorded on sessions that are already saved. Always starts unchecked.
+  $('#libFoot').innerHTML=
+    `<label style="display:flex;gap:9px;align-items:flex-start;text-transform:none;letter-spacing:0;
+        font-size:12.5px;color:var(--mut);font-weight:500;margin:0 0 10px">
+      <input type="checkbox" id="libBackfill">
+      <span>Also recalculate past sessions to match these load types.
+        <b style="color:var(--warn)">Changes historical volume.</b> Export a backup first.</span>
+    </label>
+    <button class="btn primary" id="libDone">Done</button>`;
+  $('#libDone').onclick=()=>{
+    if($('#libBackfill').checked && !applyLoadToHistory()) return; // cancelled — keep the sheet open
+    $('#libModal').classList.remove('open');
+  };
+  $('#libModal').classList.add('open');
+}
+
+/* Resync stored entries to the library's current load types. This is a full resync, not an
+   additive tag: an entry goes back to 'std' if the library now says 'std'. */
+function resyncLoad(apply){
+  const byId={},byName={};
+  DB.exercises.forEach(x=>{byId[x.id]=x;byName[x.name.trim().toLowerCase()]=x;});
+  let entries=0,sess=0;
+  DB.sessions.forEach(s=>{
+    let hit=false;
+    (s.entries||[]).forEach(en=>{
+      const x=byId[en.exId]||byName[(en.name||'').trim().toLowerCase()];
+      if(!x)return;
+      const want=x.load||'std';
+      if((en.load||'std')!==want){ if(apply)en.load=want; entries++; hit=true; }
+    });
+    if(hit)sess++;
+  });
+  return {entries,sess};
+}
+function applyLoadToHistory(){
+  const pre=resyncLoad(false);
+  if(!pre.entries){toast('Past sessions already match the library');return true;}
+  if(!confirm('Update the load type on '+pre.entries+' entr'+(pre.entries>1?'ies':'y')+' across '+
+    pre.sess+' past session'+(pre.sess>1?'s':'')+'?\n\nThis changes historical volume figures. '+
+    'Entries are set to match the library exactly — including back to Standard where the library '+
+    'says Standard.\n\nThis cannot be undone. Export a backup first.')) return false;
+  resyncLoad(true);
+  save.sessions();
+  toast('Recalculated '+pre.sess+' session'+(pre.sess>1?'s':'')+' ✓');
+  const av=document.querySelector('.view.active');
+  if(av&&av.id==='v-hist')renderHistory(); else if(av&&av.id==='v-dash')renderDash();
+  return true;
+}
+function renderLib(){
+  const box=$('#libList');const keep=box.scrollTop;box.innerHTML='';
+  const list=[...DB.exercises].sort((a,b)=>a.cat.localeCompare(b.cat)||a.name.localeCompare(b.name));
+  let cur='';
+  list.forEach(x=>{
+    if(x.cat!==cur){cur=x.cat;const h=document.createElement('div');h.className='libhead';
+      h.style.color=CAT_COLORS[cur]||CAT_COLORS.Other;h.textContent=cur;box.appendChild(h);}
+    const side=x.load==='side';
+    const it=document.createElement('div');it.className='libitem';
+    it.innerHTML=`
+      <div class="r1"><input class="nm" data-libname="${x.id}" value="${esc(x.name)}" autocomplete="off" spellcheck="false" enterkeyhint="done">
+        ${x.custom?`<button class="del-x" data-rmlib="${x.id}">delete</button>`:''}</div>
+      <div class="r2">
+        <select data-libcat="${x.id}">${Object.keys(CAT_COLORS).map(c=>`<option${c===x.cat?' selected':''}>${c}</option>`).join('')}</select>
+        <div class="seg">
+          <button data-libload="${x.id}" data-l="std" class="${side?'':'on'}">Standard</button>
+          <button data-libload="${x.id}" data-l="side" class="${side?'on':''}">Per side</button>
+        </div>
+      </div>`;
+    box.appendChild(it);
+  });
+  box.scrollTop=keep;
+}
+/* A rename is an identity correction, not a change of meaning, so it propagates BACKWARDS
+   through stored sessions and PR records. Renaming the library alone would split the
+   Exercise Progress chart in two, because exNames/exSessions key off the entry name. */
+function renameExercise(x,raw){
+  const nn=(raw||'').trim();
+  if(!nn||nn===x.name) return false;
+  if(DB.exercises.some(o=>o.id!==x.id && o.name.trim().toLowerCase()===nn.toLowerCase())){
+    toast('“'+nn+'” is already in the library');return false;
+  }
+  const old=x.name;
+  const match=en=>en.exId===x.id||en.name===old; // id first; name catches imported backups
+  const hits=DB.sessions.filter(s=>(s.entries||[]).some(match)).length;
+  if(hits && !confirm('Rename “'+old+'” to “'+nn+'”?\n\nThis also renames it in '+hits+' past session'+
+    (hits>1?'s':'')+' and in your PR history, so its progress chart stays one continuous series.')) return false;
+  x.name=nn;
+  DB.sessions.forEach(s=>{
+    (s.entries||[]).forEach(en=>{if(match(en))en.name=nn;});
+    (s.prs||[]).forEach(p=>{if(p.name===old)p.name=nn;}); // else PR badges stop matching
+  });
+  draft.entries.forEach(en=>{if(match(en))en.name=nn;});  // an unsaved draft too
+  if(curEx===old)curEx=nn;                                // keep the dashboard selection
+  save.exercises();save.sessions();renderExList();
+  toast(hits?'Renamed here and in '+hits+' session'+(hits>1?'s':'')+' ✓':'Renamed ✓');
+  return true;
+}
+$('#libList').addEventListener('change',e=>{
+  const t=e.target;
+  if(t.dataset.libcat!==undefined){
+    const x=DB.exercises.find(o=>o.id===t.dataset.libcat);if(!x)return;
+    x.cat=t.value;save.exercises();renderLib(); // row moves to its new group
+  } else if(t.dataset.libname!==undefined){
+    const x=DB.exercises.find(o=>o.id===t.dataset.libname);if(!x)return;
+    if(!renameExercise(x,t.value)) t.value=x.name; // rejected or cancelled — put the old name back
+    renderLib();
+  }
+});
+$('#libList').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.libload!==undefined){
+    const x=DB.exercises.find(o=>o.id===b.dataset.libload);if(!x)return;
+    x.load=b.dataset.l;save.exercises();
+    // toggle in place rather than re-render, so a long sweep doesn't lose scroll position
+    [...b.parentElement.children].forEach(btn=>btn.classList.toggle('on',btn.dataset.l===x.load));
+  } else if(b.dataset.rmlib!==undefined){
+    const x=DB.exercises.find(o=>o.id===b.dataset.rmlib);if(!x)return;
+    if(!confirm('Remove "'+x.name+'" from the library?\n\nPast sessions keep the entries you already logged.'))return;
+    DB.exercises=DB.exercises.filter(o=>o.id!==x.id);save.exercises();renderLib();
+  }
+});
+$('#libBtn').onclick=()=>{$('#moreModal').classList.remove('open');openLib();};
+
 /* backup */
 $('#exportBtn').onclick=()=>{
   const blob=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});
@@ -1055,6 +1238,7 @@ $('#importFile').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
   try{const txt=await f.text();const d=JSON.parse(txt);
     ['branches','exercises','sessions','scans','settings'].forEach(k=>{if(d[k])DB[k]=d[k];});
+    migrateLibrary(); // a backup can predate the current library version
     await Promise.all(Object.values(save).map(fn=>fn()));
     toast('Data imported ✓');$('#moreModal').classList.remove('open');initUI();
   }catch(err){toast('Invalid backup file');}
@@ -1062,7 +1246,7 @@ $('#importFile').onchange=async e=>{
 };
 $('#wipeBtn').onclick=async()=>{
   if(!confirm('Erase ALL workouts and scans? This cannot be undone.'))return;
-  DB={branches:['Main'],exercises:SEED_EX.map((e,i)=>({id:'s'+i,name:e[0],cat:e[1]})),sessions:[],scans:[],settings:{lastBranch:'Main'}};
+  DB={branches:['Main'],exercises:seedExercises(),sessions:[],scans:[],settings:{lastBranch:'Main',libVer:LIB_VER}};
   await Promise.all(Object.values(save).map(fn=>fn()));
   $('#moreModal').classList.remove('open');initUI();toast('All data erased');
 };
@@ -1070,6 +1254,9 @@ $('#wipeBtn').onclick=async()=>{
 /* ============================ INIT ============================ */
 function initUI(){
   resetDraft();
+  // one-time sweep for installs that predate load types. Flag is cleared as soon as the
+  // sheet is shown, so a force-quit mid-sweep doesn't nag again.
+  if(DB.settings.tagPrompt){ delete DB.settings.tagPrompt; save.settings(); openLib(true); }
 }
 (async function(){
   try{await loadDB();}catch(e){console.warn(e);}

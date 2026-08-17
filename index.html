@@ -588,41 +588,58 @@ $('#saveSess').onclick=()=>{
   const editing=!!draft.editingId;
   const sess={id:editing?draft.editingId:uid(),date:$('#sessDate').value||todayStr(),branch:draft.branch,
     bodyweight:num($('#sessBw').value),notes:$('#sessNotes').value.trim(),entries};
-  sess.prs=detectPRs(sess); // compares against all other sessions (excludes this id)
   if(editing){DB.sessions=DB.sessions.map(s=>s.id===sess.id?sess:s);}
   else{DB.sessions.push(sess);}
   save.sessions();
+  const mine=prsFor(prMap(),sess.id); // derived after the write, so it sees the saved data
   resetDraft();
   if(editing)toast('Session updated ✓');
-  else if(sess.prs.length)toast('Session saved · '+sess.prs.length+' new PR'+(sess.prs.length>1?'s':'')+'! 🔥',true);
+  else if(mine.prs.length)toast('Session saved · '+mine.prs.length+' new PR'+(mine.prs.length>1?'s':'')+'! 🔥',true);
   else toast('Session saved ✓');
   go('hist');renderHistory();
 };
 
-function bestForExercise(exId,name,excludeId){
-  let bestE=0,bestW=0;
-  DB.sessions.forEach(s=>{if(s.id===excludeId)return;
-    s.entries.forEach(en=>{if((en.exId&&en.exId===exId)||en.name===name){
-      en.sets.forEach(st=>{bestE=Math.max(bestE,e1rm(st.weight,st.reps));bestW=Math.max(bestW,st.weight||0);});
-    }});});
-  return {bestE,bestW};
-}
-function detectPRs(sess){
-  const out=[];
-  sess.entries.forEach(en=>{
-    const prior=bestForExercise(en.exId,en.name,sess.id);
-    let curE=0,curW=0;en.sets.forEach(st=>{curE=Math.max(curE,e1rm(st.weight,st.reps));curW=Math.max(curW,st.weight||0);});
-    if(curE>prior.bestE && curE>0) out.push({name:en.name,kind:'1RM',val:curE,date:sess.date});
-    else if(curW>prior.bestW && curW>0) out.push({name:en.name,kind:'Weight',val:curW,date:sess.date});
+/* PRs are DERIVED, never stored. One chronological pass keeps a running best per exercise, so
+   a PR means "beat everything logged BEFORE this session" — and editing or deleting a session
+   re-derives every badge on the next render instead of leaving stale claims behind.
+   Keyed on the trimmed lowercase name, matching exNames/exSessions; renames backfill entries,
+   so a renamed lift keeps one continuous PR history. */
+function prMap(){
+  const order=[...DB.sessions].sort((a,b)=>a.date.localeCompare(b.date)||String(a.id).localeCompare(String(b.id)));
+  const best={},out=new Map();
+  order.forEach(s=>{
+    const prs=[],news=[];
+    // pool a session's entries per exercise first, the way exSessions pools sets by name, so an
+    // exercise logged twice in one session yields ONE marker judged on the session's best
+    const agg=new Map();
+    (s.entries||[]).forEach(en=>{
+      if(!en.sets||!en.sets.length)return;
+      const key=(en.name||'').trim().toLowerCase();
+      let a=agg.get(key); if(!a){a={name:en.name,e:0,w:0};agg.set(key,a);}
+      en.sets.forEach(st=>{a.e=Math.max(a.e,e1rm(st.weight,st.reps));a.w=Math.max(a.w,st.weight||0);});
+    });
+    agg.forEach((a,key)=>{
+      const prior=best[key];
+      // a debut is marked whatever the numbers, so bodyweight lifts (0 weight, 0 e1rm) still
+      // register; a PR needs an actual load to beat
+      if(!prior) news.push(a.name);
+      else if(a.e>prior.e && a.e>0) prs.push({name:a.name,kind:'1RM',val:a.e,date:s.date});
+      else if(a.w>prior.w && a.w>0) prs.push({name:a.name,kind:'Weight',val:a.w,date:s.date});
+      best[key]={e:Math.max(prior?prior.e:0,a.e),w:Math.max(prior?prior.w:0,a.w)};
+    });
+    out.set(s.id,{prs,news});
   });
   return out;
 }
+const prsFor=(m,id)=>m.get(id)||{prs:[],news:[]};
 
 /* ============================ HISTORY ============================ */
 function renderHistory(){
   const wrap=$('#histList');wrap.innerHTML='';
   if(!DB.sessions.length){wrap.innerHTML='<div class="empty"><div class="ic">🏋</div><p>No sessions yet.<br>Tap + to log your first workout.</p></div>';return;}
+  const PM=prMap();
   [...DB.sessions].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).forEach(s=>{
+    const {prs}=prsFor(PM,s.id);
     const totalSets=s.entries.reduce((a,e)=>a+e.sets.length,0);
     const vol=s.entries.reduce((a,e)=>a+entryVol(e),0);
     const it=document.createElement('div');it.className='hitem';
@@ -630,10 +647,10 @@ function renderHistory(){
       <div class="hitem-top" data-tog>
         <div><div class="date">${fmtDate(s.date)}</div>
           <div class="meta"><span class="br">${s.branch}</span> · ${s.entries.length} exercises · ${totalSets} sets · ${Math.round(vol).toLocaleString()} kg vol</div></div>
-        <div style="display:flex;align-items:center;gap:8px">${s.prs&&s.prs.length?'<span class="pr-badge">'+s.prs.length+' PR</span>':''}<span style="color:var(--dim)">▾</span></div>
+        <div style="display:flex;align-items:center;gap:8px">${prs.length?'<span class="pr-badge">'+prs.length+' PR</span>':''}<span style="color:var(--dim)">▾</span></div>
       </div>
       <div class="hdetail">
-        ${s.entries.map(en=>`<div class="exline"><div class="en">${en.name}${s.prs&&s.prs.some(p=>p.name===en.name)?'<span class="pr-badge">PR</span>':''}</div>
+        ${s.entries.map(en=>`<div class="exline"><div class="en">${en.name}${prs.some(p=>p.name===en.name)?'<span class="pr-badge">PR</span>':''}</div>
           <div class="es">${en.sets.map(st=>`${st.reps||'–'}×${st.weight||'–'}kg${st.rpe?' @'+st.rpe:''}`).join('   ·   ')}${
             en.load==='side'?'   ·   <span style="color:var(--acc)">/side</span>':''}</div>
           ${en.machine?`<div class="es" style="color:var(--blue)">⚙ ${en.machine}</div>`:''}
@@ -951,7 +968,8 @@ function renderWeekStats(){
   const wkSess=DB.sessions.filter(s=>weekKey(s.date)===wk);
   const vol=wkSess.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+entryVol(e),0),0);
   const sets=wkSess.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+e.sets.length,0),0);
-  const allPr=DB.sessions.flatMap(s=>s.prs||[]).filter(p=>weekKey(p.date)===wk).length;
+  const PM=prMap();
+  const allPr=DB.sessions.reduce((a,s)=>a+(weekKey(s.date)===wk?prsFor(PM,s.id).prs.length:0),0);
   const tiles=[['Sessions',wkSess.length,'',CAT_COLORS.Chest],['Total sets',sets,'',CAT_COLORS.Back],
     ['Volume',Math.round(vol).toLocaleString(),'kg',CAT_COLORS.Legs],['New PRs',allPr,'',CAT_COLORS.Shoulders]];
   $('#weekStats').innerHTML=tiles.map(t=>`<div class="stat"><div class="glow" style="background:${t[3]}"></div><div class="k">${t[0]}</div><div class="v">${t[1]} <small>${t[2]}</small></div></div>`).join('');
@@ -963,6 +981,7 @@ let curMetric='1rm';
 
 // all sessions containing curEx, oldest first, with per-session aggregates + the sets themselves
 function exSessions(){
+  const PM=prMap();
   return [...DB.sessions].sort((a,b)=>a.date.localeCompare(b.date)).map(s=>{
     // volume accumulates per ENTRY (each carries its own load type); sets stay flat for top/e1rm
     const sets=[];let rawVol=0,side=false;
@@ -973,8 +992,9 @@ function exSessions(){
     const orm=Math.max(...sets.map(x=>e1rm(x.weight,x.reps)));
     const vol=Math.round(rawVol);
     const reps=sets.reduce((a,x)=>a+(x.reps||0),0);
-    const isPR=(s.prs||[]).some(p=>p.name===curEx);
-    return {date:s.date,branch:s.branch,sets,top,orm,vol,reps,isPR,side};
+    const mk=prsFor(PM,s.id);
+    const isPR=mk.prs.some(p=>p.name===curEx), isNew=mk.news.includes(curEx);
+    return {date:s.date,branch:s.branch,sets,top,orm,vol,reps,isPR,isNew,side};
   }).filter(Boolean);
 }
 const metricVal=(r,m)=>m==='top'?r.top:m==='1rm'?r.orm:m==='vol'?r.vol:r.reps;
@@ -1045,7 +1065,8 @@ function renderRpeChart(){
     options:singleAxisOpts({min:5,max:10})}));
 }
 function renderPRs(){
-  const prs=DB.sessions.flatMap(s=>(s.prs||[])).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,12);
+  const PM=prMap();
+  const prs=DB.sessions.flatMap(s=>prsFor(PM,s.id).prs).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,12);
   const wrap=$('#prList');
   if(!prs.length){wrap.innerHTML='<div class="empty"><div class="ic">🏆</div><p>No PRs logged yet.</p></div>';return;}
   wrap.innerHTML=prs.map(p=>`<div class="card tight" style="display:flex;justify-content:space-between;align-items:center">

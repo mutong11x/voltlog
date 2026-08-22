@@ -407,7 +407,7 @@ async function loadDB(){
   DB.settings  = await sget('settings')  || {lastBranch:DB.branches[0]};
   if(migrateLibrary()){ save.exercises(); save.settings(); save.sessions(); }
 }
-const LIB_VER = 4;
+const LIB_VER = 5;
 // one-time updates to the seeded exercise library for installs that already exist
 function migrateLibrary(){
   const from=(DB.settings.libVer||0);
@@ -429,6 +429,19 @@ function migrateLibrary(){
     // already wrong (frozen at save time, never recomputed) and every field is recomputable,
     // so drop them. Unlike `load`, this is output data — nothing is lost.
     DB.sessions.forEach(s=>{ delete s.prs; });
+  }
+  if(from < 5){
+    // Category is a label, not a record of what you did (rule 3): stored entries now follow the
+    // library. Existing installs can hold entries filed under a category the library has since
+    // moved on from — most visibly quick-adds stuck on 'Other' — and renderVolChart reads
+    // entry.cat, so those keep showing up as Other forever. No consent prompt: re-filing shifts
+    // which stack a bar segment lands in, never a number.
+    const byId={},byName={};
+    DB.exercises.forEach(x=>{byId[x.id]=x;byName[x.name.trim().toLowerCase()]=x;});
+    DB.sessions.forEach(s=>(s.entries||[]).forEach(en=>{
+      const x=byId[en.exId]||byName[(en.name||'').trim().toLowerCase()];
+      if(x&&x.cat&&en.cat!==x.cat)en.cat=x.cat;   // no library match — keep what was logged
+    }));
   }
   DB.settings.libVer = LIB_VER;
   return true;
@@ -1232,11 +1245,33 @@ function renameExercise(x,raw){
   toast(hits?'Renamed here and in '+hits+' session'+(hits>1?'s':'')+' ✓':'Renamed ✓');
   return true;
 }
+/* A category is a label on the exercise itself, not something about the day it was logged —
+   so, like a rename and unlike load, it propagates BACKWARDS through stored entries. Without
+   this, re-filing a lift leaves its past volume stacked under the old body part forever
+   (the weekly volume chart reads entry.cat), and anything quick-added as Other stays Other. */
+function recategorize(x,cat){
+  if(!cat||cat===x.cat) return false;
+  const key=x.name.trim().toLowerCase();
+  const match=en=>en.exId===x.id||(en.name||'').trim().toLowerCase()===key; // id first; name catches imported backups
+  const hits=DB.sessions.filter(s=>(s.entries||[]).some(en=>match(en)&&en.cat!==cat)).length;
+  if(hits && !confirm('File “'+x.name+'” under '+cat+'?\n\nThis also re-files it in '+hits+' past session'+
+    (hits>1?'s':'')+', so weekly volume counts it as '+cat+' throughout. Set counts and volume totals are unchanged.')) return false;
+  x.cat=cat;
+  DB.sessions.forEach(s=>(s.entries||[]).forEach(en=>{if(match(en))en.cat=cat;}));
+  draft.entries.forEach(en=>{if(match(en))en.cat=cat;});  // an unsaved draft too
+  save.exercises();
+  if(hits){save.sessions();toast('Re-filed here and in '+hits+' session'+(hits>1?'s':'')+' ✓');}
+  renderExList();
+  const av=document.querySelector('.view.active');
+  if(av&&av.id==='v-hist')renderHistory(); else if(av&&av.id==='v-dash')renderDash();
+  return true;
+}
 $('#libList').addEventListener('change',e=>{
   const t=e.target;
   if(t.dataset.libcat!==undefined){
     const x=DB.exercises.find(o=>o.id===t.dataset.libcat);if(!x)return;
-    x.cat=t.value;save.exercises();renderLib(); // row moves to its new group
+    if(!recategorize(x,t.value)) t.value=x.cat; // cancelled — put the old category back
+    renderLib(); // row moves to its new group
   } else if(t.dataset.libname!==undefined){
     const x=DB.exercises.find(o=>o.id===t.dataset.libname);if(!x)return;
     if(!renameExercise(x,t.value)) t.value=x.name; // rejected or cancelled — put the old name back

@@ -45,13 +45,17 @@ were wrong for exactly that reason. If you add a metric, add a function, not a f
 **2. Semantics are snapshotted onto the session entry.** `name`, `cat` and `load` are copied onto
 the entry at save time, so editing an exercise later never rewrites what past sessions mean.
 `loadSessionToDraft` reads `load` from the **entry**, not the library — re-saving an old session
-must not re-stamp it. The only way to change history is the explicit, opt-in "recalculate past
-sessions" in the Exercise Library.
+must not re-stamp it. `load` is the one that genuinely changes meaning (it moves volume numbers),
+so the only way to change it on history is the explicit, opt-in "recalculate past sessions" in
+the Exercise Library.
 
-**3. The entry `name` is the analytics key.** `exNames`, `exSessions` and `prMap` all match on
-trimmed lowercase name. Therefore renaming an exercise **backfills stored entries**
-(`renameExercise`) — a library-only rename would split one lift into two progress series. Two
-exercises may never share a name; collisions are rejected.
+**3. `name` and `cat` are labels, and labels backfill.** Both are identity, not a record of what
+happened that day, so editing either in the library propagates **backwards** through stored
+entries — `renameExercise` and `recategorize`, both confirmed with a session count. A
+library-only rename would split one lift into two progress series (`exNames`, `exSessions` and
+`prMap` all key off trimmed lowercase entry name); a library-only re-category would leave past
+volume stacked under the old body part in `renderVolChart`, which reads `entry.cat`. Neither
+changes a single number. Two exercises may never share a name; collisions are rejected.
 
 ## Metric definitions
 
@@ -72,12 +76,13 @@ exercises may never share a name; collisions are rejected.
 
 `migrateLibrary()` runs on load and after a JSON import (a backup can predate the current
 version). Bump `LIB_VER` and add a **guarded block** — `if(from < N){ ... }` — so installs never
-re-run earlier steps. Currently at 4: v2 split the deadlift variants, v3 added `load` to the
-library, v4 deleted the stored `prs` arrays. If a migration touches sessions, make sure the
-`loadDB` call site persists them.
+re-run earlier steps. Currently at 5: v2 split the deadlift variants, v3 added `load` to the
+library, v4 deleted the stored `prs` arrays, v5 resynced entry `cat` to the library. If a
+migration touches sessions, make sure the `loadDB` call site persists them.
 
 Migrating **input** data (like `load`) retroactively needs explicit user consent; migrating
-**derived** data (like `prs`) does not, because it's recomputable.
+**derived** data (like `prs`) does not, because it's recomputable. A pure **label** (like `cat`)
+doesn't either — nothing it touches is a number.
 
 ## Checking your work
 

@@ -313,7 +313,8 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
     <div class="card"><div class="chartbox tall"><canvas id="volChart"></canvas></div></div>
 
     <div class="sect-h"><h2>RPE Trend</h2><span class="line"></span></div>
-    <div class="card"><div class="chartbox"><canvas id="rpeChart"></canvas></div></div>
+    <div class="card"><div class="chartbox"><canvas id="rpeChart"></canvas></div>
+      <div class="empty" id="rpeEmpty" style="display:none;padding:24px"><p>Log RPE to see effort trends.</p></div></div>
 
     <div class="sect-h"><h2>Recent PRs</h2><span class="line"></span></div>
     <div id="prList"></div>
@@ -1123,7 +1124,12 @@ function renderRpeChart(){
     const rs=[];s.entries.forEach(e=>e.sets.forEach(st=>{if(st.rpe)rs.push(st.rpe);}));
     if(rs.length)pts.push({d:fmtDate(s.date),v:+(rs.reduce((a,b)=>a+b,0)/rs.length).toFixed(1)});
   });
-  if(!pts.length){$('#rpeChart').parentElement.parentElement.innerHTML='<div class="empty" style="padding:24px"><p>Log RPE to see effort trends.</p></div>';return;}
+  // hide the canvas rather than replacing it: this runs on every visit to the Stats tab, and
+  // overwriting the card destroyed #rpeChart, so the next render threw on a null canvas
+  const box=$('#rpeChart').parentElement;
+  box.style.display=pts.length?'':'none';
+  $('#rpeEmpty').style.display=pts.length?'none':'';
+  if(!pts.length)return;
   dashCharts.push(new Chart($('#rpeChart'),{type:'line',data:{labels:pts.map(p=>p.d),datasets:[ds('Avg RPE',pts.map(p=>p.v),'#ff7a9c')]},
     options:singleAxisOpts({min:5,max:10})}));
 }

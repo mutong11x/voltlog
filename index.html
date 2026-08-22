@@ -206,6 +206,8 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 .libitem .nm{font-weight:600;font-size:14.5px;padding:7px 9px}
 .libitem .r2{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;margin-top:8px}
 .libitem .r2 .seg{margin:0}
+.libitem .r3{display:flex;gap:8px;align-items:center;margin:9px 0 0;font-size:12px;text-transform:none;
+  letter-spacing:0;color:var(--mut);font-weight:500;line-height:1.35}
 .libitem select{padding:8px 10px;font-size:13px}
 .libhead{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin:14px 0 2px}
 /* per-session exercise log */
@@ -459,10 +461,16 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 const e1rm=(w,r)=> (!w||!r)?0 : +(w*(1+r/30)).toFixed(1);
+/* Reverse-loaded work (assisted pull-up, assisted dip): the number logged is ASSISTANCE, so
+   LESS of it is harder. Counting it as volume would reward getting weaker — 40kg of help would
+   outscore 20kg — so it is excluded outright rather than inverted. Missing = normal. */
+const isRev=en=>!!(en&&en.rev);
 /* Volume multiplier: one-limb-at-a-time work is logged once but trains both sides, so it
    counts double for VOLUME ONLY — never for top-set weight, e1rm, PRs or set counts.
-   Read from the session entry (not the live library) so history stays stable; missing = std. */
-const loadMult=en=>(en&&en.load==='side')?2:1;
+   Read from the session entry (not the live library) so history stays stable; missing = std.
+   Reverse work multiplies out to 0, which is how every volume path drops it at once. */
+const loadMult=en=>isRev(en)?0:(en&&en.load==='side')?2:1;
+const minOf=(a,b)=>a===null?b:(b===null?a:Math.min(a,b));
 const entryVol=en=>en.sets.reduce((a,st)=>a+(st.weight||0)*(st.reps||0),0)*loadMult(en);
 const fmtDate=s=>{const d=new Date(s+'T00:00');return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'});};
 const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
@@ -551,7 +559,7 @@ function renderExResults(q){
     add.textContent='+ Add "'+q.trim()+'" as custom';
     add.onclick=()=>{
       // added as Other/std so logging isn't interrupted — refine it in Settings › Exercise Library
-      const nx={id:uid(),name:q.trim(),cat:'Other',load:'std',custom:true};
+      const nx={id:uid(),name:q.trim(),cat:'Other',load:'std',rev:false,custom:true};
       DB.exercises.push(nx);save.exercises();addExerciseToDraft(nx);
       toast('Added · set its category & load in Settings › Exercise library');
     };
@@ -567,7 +575,7 @@ function renderExResults(q){
   });
 }
 function addExerciseToDraft(x){
-  draft.entries.push({exId:x.id,name:x.name,cat:x.cat,load:x.load||'std',sets:[blankSet()],machine:'',remarks:''});
+  draft.entries.push({exId:x.id,name:x.name,cat:x.cat,load:x.load||'std',rev:!!x.rev,sets:[blankSet()],machine:'',remarks:''});
   $('#exModal').classList.remove('open');renderExList();
 }
 $('#exSearch').addEventListener('input',e=>renderExResults(e.target.value));
@@ -591,7 +599,7 @@ function loadSessionToDraft(id){
   // load comes from the stored ENTRY, not the library — re-saving an old session must not
   // re-stamp it with a load type the exercise only acquired later (same reason as name/cat)
   draft={branch:s.branch,editingId:s.id,entries:(s.entries||[]).map(en=>({
-    exId:en.exId,name:en.name,cat:en.cat,load:en.load||'std',machine:en.machine||'',remarks:en.remarks||'',
+    exId:en.exId,name:en.name,cat:en.cat,load:en.load||'std',rev:!!en.rev,machine:en.machine||'',remarks:en.remarks||'',
     sets:(en.sets&&en.sets.length?en.sets:[{}]).map(st=>({reps:st.reps??'',weight:st.weight??'',rpe:st.rpe??'',type:st.type||'W'}))
   }))};
   $('#sessDate').value=s.date;$('#sessBw').value=s.bodyweight??'';$('#sessNotes').value=s.notes||'';
@@ -603,7 +611,7 @@ $('#cancelEdit').onclick=()=>{resetDraft();go('hist');renderHistory();};
 $('#saveSess').onclick=()=>{
   if(!draft.branch){toast('Select a gym branch first');return;}
   const entries=draft.entries.map(en=>({
-    exId:en.exId,name:en.name,cat:en.cat,load:en.load||'std',machine:en.machine,remarks:en.remarks,
+    exId:en.exId,name:en.name,cat:en.cat,load:en.load||'std',rev:!!en.rev,machine:en.machine,remarks:en.remarks,
     sets:en.sets.filter(s=>num(s.reps)||num(s.weight)).map(s=>({reps:num(s.reps),weight:num(s.weight),rpe:num(s.rpe),type:s.type||'W'}))
   })).filter(en=>en.sets.length);
   if(!entries.length){toast('Add at least one set');return;}
@@ -1144,7 +1152,10 @@ $('#addBranch').onclick=()=>{const v=$('#newBranch').value.trim();if(!v)return;i
 /* EXERCISE LIBRARY — category + load type per exercise */
 const LIB_NOTE='Per-side doubles <b>volume only</b> — top set and est. 1RM stay exactly as logged. '+
   'Use it for one-limb-at-a-time work (single-arm row, split squat), not two-dumbbell lifts. '+
-  'Load changes apply to new logs; past sessions keep the type they were logged with.';
+  'Load changes apply to new logs; past sessions keep the type they were logged with. '+
+  '<b>Assisted</b> is for machine-assisted work where the weight is help (assisted pull-up): it '+
+  'is dropped from volume entirely and applies to past sessions too, since the movement was '+
+  'always assisted.';
 function openLib(transition){
   $('#libTitle').textContent=transition?'Tag your unilateral lifts':'Exercise Library';
   $('#libNote').innerHTML=(transition?'<b style="color:var(--acc)">New:</b> volume now doubles for '+
@@ -1217,7 +1228,9 @@ function renderLib(){
           <button data-libload="${x.id}" data-l="std" class="${side?'':'on'}">Standard</button>
           <button data-libload="${x.id}" data-l="side" class="${side?'on':''}">Per side</button>
         </div>
-      </div>`;
+      </div>
+      <label class="r3"><input type="checkbox" data-librev="${x.id}"${x.rev?' checked':''}>
+        <span>Assisted — the weight is help, so less is harder. No volume.</span></label>`;
     box.appendChild(it);
   });
   box.scrollTop=keep;
@@ -1266,9 +1279,37 @@ function recategorize(x,cat){
   if(av&&av.id==='v-hist')renderHistory(); else if(av&&av.id==='v-dash')renderDash();
   return true;
 }
+/* Unlike `load`, which records how you happened to train that day, assisted-ness is a property
+   of the movement itself — an assisted pull-up was always assisted, so its past volume was
+   always misleading. It therefore applies to history rather than only to new logs. It does move
+   volume totals, so it asks first, the way re-categorising does. */
+function setReverse(x,on){
+  on=!!on;
+  if(on===!!x.rev) return false;
+  const key=x.name.trim().toLowerCase();
+  const match=en=>en.exId===x.id||(en.name||'').trim().toLowerCase()===key; // id first; name catches imported backups
+  const hits=DB.sessions.filter(s=>(s.entries||[]).some(en=>match(en)&&!!en.rev!==on)).length;
+  if(hits && !confirm((on?'Drop “'+x.name+'” from volume?':'Count “'+x.name+'” in volume again?')+
+    '\n\nThis also applies to '+hits+' past session'+(hits>1?'s':'')+', so their volume totals '+
+    (on?'go down':'go up')+'. Its PRs switch to the '+(on?'lowest':'highest')+' weight logged.\n\n'+
+    'Sets and reps are untouched. Export a backup first.')) return false;
+  x.rev=on;
+  DB.sessions.forEach(s=>(s.entries||[]).forEach(en=>{if(match(en))en.rev=on;}));
+  draft.entries.forEach(en=>{if(match(en))en.rev=on;});  // an unsaved draft too
+  save.exercises();
+  if(hits){save.sessions();toast((on?'Dropped from volume in ':'Restored to volume in ')+hits+' session'+(hits>1?'s':'')+' ✓');}
+  renderExList();
+  const av=document.querySelector('.view.active');
+  if(av&&av.id==='v-hist')renderHistory(); else if(av&&av.id==='v-dash')renderDash();
+  return true;
+}
 $('#libList').addEventListener('change',e=>{
   const t=e.target;
-  if(t.dataset.libcat!==undefined){
+  if(t.dataset.librev!==undefined){
+    const x=DB.exercises.find(o=>o.id===t.dataset.librev);if(!x)return;
+    if(!setReverse(x,t.checked)) t.checked=!!x.rev; // cancelled — put the box back
+    renderLib();
+  } else if(t.dataset.libcat!==undefined){
     const x=DB.exercises.find(o=>o.id===t.dataset.libcat);if(!x)return;
     if(!recategorize(x,t.value)) t.value=x.cat; // cancelled — put the old category back
     renderLib(); // row moves to its new group

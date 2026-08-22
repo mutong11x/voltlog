@@ -407,7 +407,7 @@ async function loadDB(){
   DB.settings  = await sget('settings')  || {lastBranch:DB.branches[0]};
   if(migrateLibrary()){ save.exercises(); save.settings(); save.sessions(); }
 }
-const LIB_VER = 4;
+const LIB_VER = 5;
 // one-time updates to the seeded exercise library for installs that already exist
 function migrateLibrary(){
   const from=(DB.settings.libVer||0);
@@ -429,6 +429,19 @@ function migrateLibrary(){
     // already wrong (frozen at save time, never recomputed) and every field is recomputable,
     // so drop them. Unlike `load`, this is output data — nothing is lost.
     DB.sessions.forEach(s=>{ delete s.prs; });
+  }
+  if(from < 5){
+    // Category is a label, not a record of what you did (rule 3): stored entries now follow the
+    // library. Existing installs can hold entries filed under a category the library has since
+    // moved on from — most visibly quick-adds stuck on 'Other' — and renderVolChart reads
+    // entry.cat, so those keep showing up as Other forever. No consent prompt: re-filing shifts
+    // which stack a bar segment lands in, never a number.
+    const byId={},byName={};
+    DB.exercises.forEach(x=>{byId[x.id]=x;byName[x.name.trim().toLowerCase()]=x;});
+    DB.sessions.forEach(s=>(s.entries||[]).forEach(en=>{
+      const x=byId[en.exId]||byName[(en.name||'').trim().toLowerCase()];
+      if(x&&x.cat&&en.cat!==x.cat)en.cat=x.cat;   // no library match — keep what was logged
+    }));
   }
   DB.settings.libVer = LIB_VER;
   return true;

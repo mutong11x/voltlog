@@ -1232,11 +1232,33 @@ function renameExercise(x,raw){
   toast(hits?'Renamed here and in '+hits+' session'+(hits>1?'s':'')+' ✓':'Renamed ✓');
   return true;
 }
+/* A category is a label on the exercise itself, not something about the day it was logged —
+   so, like a rename and unlike load, it propagates BACKWARDS through stored entries. Without
+   this, re-filing a lift leaves its past volume stacked under the old body part forever
+   (the weekly volume chart reads entry.cat), and anything quick-added as Other stays Other. */
+function recategorize(x,cat){
+  if(!cat||cat===x.cat) return false;
+  const key=x.name.trim().toLowerCase();
+  const match=en=>en.exId===x.id||(en.name||'').trim().toLowerCase()===key; // id first; name catches imported backups
+  const hits=DB.sessions.filter(s=>(s.entries||[]).some(en=>match(en)&&en.cat!==cat)).length;
+  if(hits && !confirm('File “'+x.name+'” under '+cat+'?\n\nThis also re-files it in '+hits+' past session'+
+    (hits>1?'s':'')+', so weekly volume counts it as '+cat+' throughout. Set counts and volume totals are unchanged.')) return false;
+  x.cat=cat;
+  DB.sessions.forEach(s=>(s.entries||[]).forEach(en=>{if(match(en))en.cat=cat;}));
+  draft.entries.forEach(en=>{if(match(en))en.cat=cat;});  // an unsaved draft too
+  save.exercises();
+  if(hits){save.sessions();toast('Re-filed here and in '+hits+' session'+(hits>1?'s':'')+' ✓');}
+  renderExList();
+  const av=document.querySelector('.view.active');
+  if(av&&av.id==='v-hist')renderHistory(); else if(av&&av.id==='v-dash')renderDash();
+  return true;
+}
 $('#libList').addEventListener('change',e=>{
   const t=e.target;
   if(t.dataset.libcat!==undefined){
     const x=DB.exercises.find(o=>o.id===t.dataset.libcat);if(!x)return;
-    x.cat=t.value;save.exercises();renderLib(); // row moves to its new group
+    if(!recategorize(x,t.value)) t.value=x.cat; // cancelled — put the old category back
+    renderLib(); // row moves to its new group
   } else if(t.dataset.libname!==undefined){
     const x=DB.exercises.find(o=>o.id===t.dataset.libname);if(!x)return;
     if(!renameExercise(x,t.value)) t.value=x.name; // rejected or cancelled — put the old name back

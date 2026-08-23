@@ -16,6 +16,8 @@ const SRC=[
   [/const isRev=[^\n]*/,'isRev'],
   [/const loadMult=[^\n]*/,'loadMult'],
   [/const minOf=[^\n]*/,'minOf'],
+  [/const wMult=[^\n]*/,'wMult'],
+  [/const effSets=en=>[\s\S]*?raw:st\.weight, dual:!!en\.dual\}\)\);/,'effSets'],
   [/const entryVol=[^\n]*/,'entryVol'],
   [/function prMap\(\)\{[\s\S]*?\n\}/,'prMap'],
   [/const prsFor=[^\n]*/,'prsFor'],

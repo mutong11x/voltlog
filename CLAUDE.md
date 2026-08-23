@@ -50,7 +50,8 @@ so the only way to change it on history is the explicit, opt-in "recalculate pas
 the Exercise Library. `rev` is the exception that proves the rule: it moves volume the way `load`
 does, but it describes the *movement* rather than the day — an assisted pull-up was always
 assisted — so `setReverse` writes it back through history behind a confirm instead of waiting for
-that checkbox.
+that checkbox. `setDual` is the same shape for the same reason: which station a lift lives on is a
+fact about the lift, not about the day.
 
 **3. `name` and `cat` are labels, and labels backfill.** Both are identity, not a record of what
 happened that day, so editing either in the library propagates **backwards** through stored
@@ -62,12 +63,21 @@ changes a single number. Two exercises may never share a name; collisions are re
 
 ## Metric definitions
 
-- **Volume** = `Σ (weight × reps)`, scaled by `loadMult`: **× 2 when `entry.load === "side"`**,
-  **× 0 when `entry.rev`**. One implementation only: `entryVol`. Four callers: `renderHistory`,
-  `renderWeekStats`, `exSessions`, `renderVolChart`. Never re-inline the formula.
+- **Volume** = `Σ (weight × reps)` over `effSets(entry)`, scaled by `loadMult`: **× 2 when
+  `entry.load === "side"`**, **× 0 when `entry.rev`**. One implementation only: `entryVol`. Four
+  callers: `renderHistory`, `renderWeekStats`, `exSessions`, `renderVolChart`. Never re-inline it.
 - **`load`** — `"std"` (×1) or `"side"` (one-limb-at-a-time, ×2). Affects **volume only**: top-set
   weight, `e1rm`, PRs and set counts are never multiplied. A per-side set is logged once and
   counts as one set. Two-dumbbell both-arms lifts are `"std"`. Missing `load` reads as `"std"`.
+- **`dual`** — dual-cable stations run two lines to the load, so the pin reads half of what you
+  actually move (a pulldown set to 10 feels like 20). Unlike the other two flags this corrects the
+  **weight**, so it feeds top set, `e1rm`, PRs *and* volume — that is what keeps one lift
+  comparable across whichever station was free. `effSets(entry)` is the single normalisation
+  point: it scales `weight` and keeps the pin setting in `raw` for display. Every weight consumer
+  goes through it — `entryVol`, `prMap`, `exSessions`, `lastTimeBand` — and none re-derives the
+  factor. Normalise **per entry, before flattening**: one exercise can appear twice in a session,
+  once per station. Stored per entry because the station changes week to week; the library holds
+  the default and `setDual` backfills. Missing `dual` reads as false.
 - **`rev`** — reverse-loaded work (assisted pull-up, assisted dip), read with `isRev`. The logged
   number is *assistance*, so less of it is harder. It is **excluded** from volume (`loadMult`
   returns 0), not inverted: inverting would need an arbitrary baseline, and counting it as-is
@@ -77,8 +87,10 @@ changes a single number. Two exercises may never share a name; collisions are re
 - **est. 1RM** — Epley, `weight * (1 + reps/30)` (`e1rm`). Returns 0 without a weight.
 - **Best set of a session** — `setPills` renders the pills *and* decides which one is best, so the
   Stats per-exercise log and the last-time band on the log card can never disagree. Like
-  `entryVol`, one implementation: don't re-inline it. It renders a weight of `0` as `0`, not `–`,
-  because for a `rev` lift zero assistance is the achievement.
+  `entryVol`, one implementation: don't re-inline it. It ranks on the effective weight but renders
+  `st.raw` when present, so a dual-pulley set is *judged* at 20 and *shown* as the 10 you set. It
+  renders a weight of `0` as `0`, not `–`, because for a `rev` lift zero assistance is the
+  achievement.
 - **PRs** — derived by `prMap()`: one chronological pass (date, then id) keeping a running best
   per exercise, so a PR means "beat everything logged *before* this session". Entries are pooled
   per exercise within a session. For a `rev` exercise the record is the **lowest** weight

@@ -87,6 +87,17 @@ header{position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--
 .ex-top{display:flex;align-items:center;justify-content:space-between;padding:13px 14px;background:var(--surf2)}
 .ex-top .nm{font-family:'Saira Condensed';font-weight:600;font-size:18px;letter-spacing:.01em}
 .ex-top .cat{font-size:10px;color:var(--acc);text-transform:uppercase;letter-spacing:.1em;font-weight:600}
+/* last-time band: reference material, so it sits quieter than the inputs below it */
+.lastrow{padding:9px 12px;background:var(--bg2);border-bottom:1px solid var(--line)}
+.lastrow.none{font-size:11px;color:var(--dim);letter-spacing:.04em;text-transform:uppercase;font-weight:600}
+.lt-h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lt-d{font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;font-weight:700}
+.lt-ago{color:var(--dim);letter-spacing:.04em}
+.lt-rep{font-size:11px;font-weight:700;color:var(--acc);padding:4px 9px;border:1px solid var(--acc-d);
+  border-radius:999px;white-space:nowrap;flex:0 0 auto}
+.lt-sets{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:7px}
+.lt-tag{font-size:10px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.04em}
+.lt-mach{font-size:11px;color:var(--blue);margin-top:6px}
 .ex-body{padding:6px 12px 13px}
 .setrow{display:grid;grid-template-columns:26px 1fr 1fr 1fr 30px;gap:7px;align-items:center;margin:7px 0}
 .setrow .sn{font-family:'JetBrains Mono';font-size:12px;color:var(--dim);text-align:center}
@@ -476,6 +487,45 @@ const minOf=(a,b)=>a===null?b:(b===null?a:Math.min(a,b));
 const entryVol=en=>en.sets.reduce((a,st)=>a+(st.weight||0)*(st.reps||0),0)*loadMult(en);
 const fmtDate=s=>{const d=new Date(s+'T00:00');return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'});};
 const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
+/* how long ago, in the coarsest unit that still reads as a gap you'd care about mid-session */
+function agoStr(d){
+  const days=Math.round((new Date(todayStr()+'T00:00')-new Date(d+'T00:00'))/864e5);
+  if(days<=0)return 'today';
+  if(days===1)return 'yesterday';
+  if(days<14)return days+' days ago';
+  if(days<60)return Math.round(days/7)+' wks ago';
+  return Math.round(days/30)+' mo ago';
+}
+/* The last time this exercise was logged BEFORE the session being drafted. Keyed on trimmed
+   lowercase name (rule 3), so a renamed lift keeps its history — renameExercise backfills the
+   entries. Ordered by (date, id) like prMap, and the draft's own session is excluded, so editing
+   an old session shows the one before it rather than itself. */
+function prevEntry(name,beforeDate,excludeId){
+  const key=(name||'').trim().toLowerCase();
+  let best=null;
+  DB.sessions.forEach(s=>{
+    if(s.id===excludeId||s.date>beforeDate)return;
+    const en=(s.entries||[]).find(e=>(e.name||'').trim().toLowerCase()===key&&e.sets&&e.sets.length);
+    if(!en)return;
+    if(!best||s.date>best.date||(s.date===best.date&&String(s.id)>String(best.id)))
+      best={date:s.date,id:s.id,entry:en};
+  });
+  return best;
+}
+/* One implementation of "these are the sets, and this was the best one" — the per-exercise log
+   on Stats and the last-time band on the log card must agree. Assisted work inverts it: the
+   LIGHTEST set is the hardest, so that is the one marked. */
+function setPills(sets,rev){
+  const bestE=Math.max(...sets.map(x=>e1rm(x.weight,x.reps)));
+  const ws=sets.map(x=>num(x.weight)).filter(w=>w!==null);
+  const bestW=ws.length?Math.min(...ws):null;
+  return sets.map(st=>{
+    const best=rev?(num(st.weight)!==null&&num(st.weight)===bestW):(e1rm(st.weight,st.reps)===bestE&&bestE>0);
+    // 0 must survive: for assisted work it means no help at all, the whole point of the lift
+    const w=(st.weight===0||st.weight)?st.weight:'–';
+    return `<span class="setpill${best?' best':''}">${st.reps||'–'}×${w}${st.rpe?'<span class="rpe"> @'+st.rpe+'</span>':''}</span>`;
+  }).join('');
+}
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 function toast(msg,pr){const t=$('#toast');t.textContent=msg;t.className=pr?'show pr':'show';clearTimeout(t._t);t._t=setTimeout(()=>t.className='',2400);}
 function weekKey(d){const dt=new Date(d+'T00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
@@ -501,6 +551,23 @@ function renderBranchChips(){
 
 function blankSet(prev){return {reps:prev?prev.reps:'',weight:prev?prev.weight:'',rpe:prev?prev.rpe:'',type:'W'};}
 
+/* What you actually want to know standing in front of the rack: what did I do last time. Shown
+   on the card itself rather than on Stats, because that is where the question gets asked. */
+function lastTimeBand(en,ei){
+  const p=prevEntry(en.name,$('#sessDate').value||todayStr(),draft.editingId);
+  if(!p)return '<div class="lastrow none">First time logging this</div>';
+  const pe=p.entry;
+  return `<div class="lastrow">
+    <div class="lt-h">
+      <span class="lt-d">Last time · ${fmtDate(p.date)} <span class="lt-ago">· ${agoStr(p.date)}</span></span>
+      <button class="lt-rep" data-repeat="${ei}">↻ repeat</button>
+    </div>
+    <div class="lt-sets">${setPills(pe.sets,isRev(pe))}${
+      pe.load==='side'&&!isRev(pe)?'<span class="lt-tag">per side</span>':''}${
+      isRev(pe)?'<span class="lt-tag">assisted</span>':''}</div>
+    ${pe.machine?`<div class="lt-mach">⚙ ${esc(pe.machine)}</div>`:''}</div>`;
+}
+
 function renderExList(){
   const wrap=$('#exList'); wrap.innerHTML='';
   draft.entries.forEach((en,ei)=>{
@@ -513,6 +580,7 @@ function renderExList(){
           isRev(en)?'<span class="tagpill inv" style="margin-left:6px">assisted · no vol</span>':''}</div></div>
         <button class="del-x" data-del="${ei}">✕</button>
       </div>
+      ${lastTimeBand(en,ei)}
       <div class="ex-body">
         <div class="set-head"><span>#</span><span>Reps</span><span>Kg</span><span>RPE</span><span></span></div>
         <div class="sets"></div>
@@ -536,6 +604,19 @@ function renderExList(){
   });
 }
 
+/* Copy last session's reps and weights onto the draft, as a starting point to edit up or down.
+   RPE is deliberately not copied: it is how the set felt on the day, not a target. */
+function repeatLast(en){
+  const p=prevEntry(en.name,$('#sessDate').value||todayStr(),draft.editingId);
+  if(!p)return;
+  const typed=en.sets.some(s=>num(s.reps)!==null||num(s.weight)!==null);
+  if(typed && !confirm('Replace what you have typed for “'+en.name+'” with last time’s numbers?'))return;
+  en.sets=p.entry.sets.map(st=>({reps:st.reps??'',weight:st.weight??'',rpe:'',type:st.type||'W'}));
+  if(!en.sets.length)en.sets=[blankSet()];
+  renderExList();
+  toast('Filled from '+fmtDate(p.date)+' ✓');
+}
+
 // delegated input/click for log
 $('#exList').addEventListener('input',e=>{
   const t=e.target;
@@ -545,7 +626,8 @@ $('#exList').addEventListener('input',e=>{
 });
 $('#exList').addEventListener('click',e=>{
   const t=e.target.closest('button'); if(!t)return;
-  if(t.dataset.addset!==undefined){const en=draft.entries[t.dataset.addset];en.sets.push(blankSet(en.sets[en.sets.length-1]));renderExList();}
+  if(t.dataset.repeat!==undefined){repeatLast(draft.entries[t.dataset.repeat]);}
+  else if(t.dataset.addset!==undefined){const en=draft.entries[t.dataset.addset];en.sets.push(blankSet(en.sets[en.sets.length-1]));renderExList();}
   else if(t.dataset.delset!==undefined){const[ei,si]=t.dataset.delset.split('.');draft.entries[ei].sets.splice(si,1);if(!draft.entries[ei].sets.length)draft.entries[ei].sets.push(blankSet());renderExList();}
   else if(t.dataset.del!==undefined){draft.entries.splice(t.dataset.del,1);renderExList();}
 });
@@ -1087,13 +1169,7 @@ function renderExLog(){
   const rows=exSessions();const wrap=$('#exLog');
   if(!rows.length){wrap.innerHTML='';return;}
   wrap.innerHTML='<div class="exlog">'+rows.slice().reverse().map(r=>{
-    const bestE=Math.max(...r.sets.map(x=>e1rm(x.weight,x.reps)));
-    const ws=r.sets.map(x=>num(x.weight)).filter(w=>w!==null);
-    const bestW=ws.length?Math.min(...ws):null;   // assisted: the lightest set is the hardest
-    const pills=r.sets.map(st=>{
-      const best=r.rev?(num(st.weight)!==null&&num(st.weight)===bestW):(e1rm(st.weight,st.reps)===bestE&&bestE>0);
-      return `<span class="setpill${best?' best':''}">${st.reps||'–'}×${st.weight||'–'}${st.rpe?'<span class="rpe"> @'+st.rpe+'</span>':''}</span>`;
-    }).join('');
+    const pills=setPills(r.sets,r.rev);
     return `<div class="exlog-row">
       <div class="exlog-h">
         <div class="exlog-d">${fmtDate(r.date)}<span class="br">${r.branch}</span>${r.isPR?'<span class="pr-badge">PR</span>':''}${r.isNew?'<span class="new-badge">First</span>':''}</div>

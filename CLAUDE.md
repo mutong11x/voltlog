@@ -75,6 +75,12 @@ changes a single number. Two exercises may never share a name; collisions are re
 
 ## Metric definitions
 
+A volume rule lives in **three** places: the code (`entryVol`/`loadMult`/the flag), `LIB_NOTE` at
+the point of use in the Exercise Library, and `HELP_SECTIONS` in the in-app guide. Change one and
+change all three — `unit-help` asserts the guide names every modifier, so adding a fourth flag
+fails there until it is documented. Don't try to share strings between them; they are deliberately
+different depths.
+
 - **Volume** = `Σ (weight × reps)` over `effSets(entry)`, scaled by `loadMult`: **× 2 when
   `entry.load === "side"`**, **× 0 when `entry.rev`**. One implementation only: `entryVol`. Four
   callers: `renderHistory`, `renderWeekStats`, `exSessions`, `renderVolChart`. Never re-inline it.

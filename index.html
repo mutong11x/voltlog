@@ -130,6 +130,11 @@ header{position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--
 .hitem .br{font-size:11px;color:var(--acc);font-weight:600;letter-spacing:.04em}
 .hdetail{padding:0 14px 12px;border-top:1px solid var(--line);display:none}
 .hdetail.open{display:block}
+.hdetail.help{font-size:13.5px;color:var(--mut);line-height:1.6}
+.hdetail.help p{margin:10px 0}
+.hdetail.help b{color:var(--txt)}
+.hdetail.help ul{margin:10px 0;padding-left:18px}
+.hdetail.help li{margin:7px 0}
 .exline{padding:9px 0;border-bottom:1px dashed var(--line)}
 .exline:last-child{border:none}
 .exline .en{font-weight:700;font-size:14px}
@@ -372,7 +377,9 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
   <div class="grab"></div>
   <h2 style="font-size:20px;margin-bottom:4px">Settings &amp; Data</h2>
   <p class="note" style="margin-bottom:14px">Your data is saved on this device in your browser. Use Export below to back it up or move it to another device.</p>
-  <div class="sect-h" style="margin-top:6px"><h2>Branches</h2><span class="line"></span></div>
+  <div class="sect-h" style="margin-top:6px"><h2>Help</h2><span class="line"></span></div>
+  <button class="btn ghost" id="helpBtn">? How it works</button>
+  <div class="sect-h"><h2>Branches</h2><span class="line"></span></div>
   <div class="chips" id="branchMgr" style="margin-bottom:8px"></div>
   <div class="miniadd"><input id="newBranch" placeholder="Add a gym / branch"><button class="btn sm primary" id="addBranch">Add</button></div>
   <div class="sect-h"><h2>Exercises</h2><span class="line"></span></div>
@@ -383,6 +390,14 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
   <input type="file" id="importFile" accept="application/json" style="display:none">
   <div class="sect-h"><h2>Reset</h2><span class="line"></span></div>
   <button class="btn danger" id="wipeBtn">Erase all data</button>
+</div></div>
+
+<!-- how-it-works guide -->
+<div class="modal" id="helpModal"><div class="sheet">
+  <div class="grab"></div>
+  <h2 style="font-size:20px;margin-bottom:4px">How it works</h2>
+  <p class="note" style="margin-bottom:12px">Tap a section to open it.</p>
+  <div id="helpBody"></div>
 </div></div>
 
 <!-- scan detail / review modal -->
@@ -928,6 +943,100 @@ async function parseEvolt(file){
   out._fields=Object.keys(out).filter(k=>out[k]!=null&&!k.startsWith('_')).length;
   return out;
 }
+
+/* ============================ HELP ============================ */
+/* The in-app manual. Written for someone who has never used VOLTLOG and has no idea why a lift
+   might be missing from their volume. Several of these rules change your numbers and cannot be
+   guessed from the UI, so they get explained here at length AND briefly at the point of use in
+   LIB_NOTE — see the note in CLAUDE.md: change a volume rule and you change all three places. */
+const HELP_SECTIONS=[
+{t:'Logging a session', html:`
+  <p>Pick the gym you are at, then add exercises and fill in each set — reps and weight, with RPE
+  if you track it. Tap <b>+ set</b> for another. <b>Save session</b> when you are done.</p>
+  <p>When you add an exercise, the card shows <b>Last time</b>: every set from the previous session,
+  with the best one highlighted, and how long ago it was. Tap <b>↻ repeat</b> to fill today's rows
+  with those same numbers as a starting point, then edit up or down. RPE is not copied — that is how
+  the set felt on the day, not a target.</p>
+  <p>Each exercise also takes a <b>machine / seat</b> note and free-text <b>remarks</b>. The machine
+  note shows up in Last time too, so seat and pad settings come back with the numbers.</p>`},
+
+{t:'Volume and what changes it', html:`
+  <p><b>Volume</b> is <span class="mono">weight × reps</span> added up across every set — the
+  simplest measure of how much work you did. Three settings change how a lift contributes.</p>
+  <p><b>Per side</b> — for one-limb-at-a-time work: single-arm rows, split squats. Log the set once,
+  as you performed it. It counts as <b>one set</b>, but the volume doubles, because both limbs did
+  that work. Your top set and estimated 1RM stay exactly as logged — no single limb lifted double.
+  A two-dumbbell lift where both arms work together is <b>not</b> per side.</p>
+  <p><b>Assisted</b> — on an assisted pull-up or dip machine the weight <i>helps</i> you, so more of
+  it makes the lift easier. These are left out of volume altogether. Counting them would reward
+  using more help, and there is no honest way to invert the number without knowing what you weigh
+  against the machine. A personal best is the <b>lowest</b> assistance you have used, and estimated
+  1RM is hidden, because that formula assumes more weight is harder.</p>
+  <p><b>Dual pulley</b> — some stations run two cables to the load, so the pin reads about half of
+  what you are really moving: a pulldown set to 10 kg feels like a normal 20 kg. Mark the set as
+  dual and the weight counts <b>double everywhere</b> — top set, estimated 1RM, personal bests and
+  volume — so the same lift stays comparable whichever station was free. You still type what the pin
+  says; the app does the rest, and your log still shows the number you set.</p>`},
+
+{t:'Personal bests and the New badge', html:`
+  <p>A <b>PR</b> means you beat everything you had logged <i>before</i> that session — not your best
+  ever as of today. So an old session keeps the badge it earned at the time, and the story reads
+  forward the way it actually happened.</p>
+  <p>Bests are worked out fresh every time the screen draws and are never stored. Edit or delete a
+  session and every badge is re-judged on the next render, so nothing is left claiming something
+  that is no longer true.</p>
+  <p><b>New</b> marks the first time an exercise appears. A lift with no weight — bodyweight
+  pull-ups, planks — only ever gets <b>New</b>, because there is no load to beat.</p>`},
+
+{t:'The exercise library', html:`
+  <p>Under <b>Settings → Exercise library</b> each exercise has a body part, a load type
+  (standard or per side), and checkboxes for assisted and dual pulley.</p>
+  <p>Some of these reach <b>backwards through your history</b> and some only affect new logs. The
+  difference is whether the setting describes the <i>movement</i> or the <i>session</i>:</p>
+  <ul>
+    <li><b>Renaming</b> — rewrites past entries, so a renamed lift keeps one continuous progress
+    chart instead of splitting into two.</li>
+    <li><b>Body part</b> — rewrites past entries, after asking. It moves no numbers, only which
+    part of the weekly volume chart the lift is filed under.</li>
+    <li><b>Assisted</b> — rewrites past entries, after asking. An assisted pull-up was always
+    assisted, so its old volume was always misleading.</li>
+    <li><b>Per side</b> — <b>new logs only</b>. Tick <i>Also recalculate past sessions</i> at the
+    bottom of the library to apply it backwards.</li>
+    <li><b>Dual pulley</b> — <b>new logs only</b>, because the station changes week to week. Switch
+    it for a single session on the exercise card, or on an old one by editing that session.</li>
+  </ul>
+  <p>Anything that changes historical figures asks first and tells you how many sessions it will
+  touch. Export a backup before a big one.</p>`},
+
+{t:'Body scans', html:`
+  <p>PDF import currently reads <b>Evolt 360</b> reports. Drop the PDF in and the fields are read
+  on your device — nothing is uploaded anywhere — then you get a review screen to correct anything
+  that came out wrong before saving. Support for other scan formats may follow.</p>
+  <p>Any other scanner, or no scanner at all: use <b>+ Enter a scan manually</b> and fill in
+  whatever you have. Every field is optional.</p>
+  <p><b>Detailed trend</b> only offers metrics your scans actually contain, so you never tap
+  through to an empty chart. If something you expect is missing, no saved scan has a value for
+  it — check the scan by editing it.</p>`},
+
+{t:'Your data', html:`
+  <p>Everything is stored in this browser, on this device. Nothing is sent anywhere, and there is
+  no account to sign into.</p>
+  <p>That also means clearing your browser data will erase it, and a second device starts empty.
+  Use <b>Settings → Export</b> to save a JSON backup, and <b>Import</b> to restore it or carry it to
+  another device. It is worth exporting before any change that rewrites history.</p>
+  <p>Accounts and syncing across devices are planned for a later version.</p>`},
+];
+function renderHelp(){
+  const box=$('#helpBody');box.innerHTML='';
+  HELP_SECTIONS.forEach(s=>{
+    const it=document.createElement('div');it.className='hitem';
+    it.innerHTML=`<div class="hitem-top" data-tog><div class="date">${s.t}</div><span style="color:var(--dim)">▾</span></div>
+      <div class="hdetail help">${s.html}</div>`;
+    it.querySelector('[data-tog]').onclick=()=>it.querySelector('.hdetail').classList.toggle('open');
+    box.appendChild(it);
+  });
+}
+function openHelp(){renderHelp();$('#helpModal').classList.add('open');}
 
 /* scan metric schema for review form + display */
 const SCAN_SCHEMA=[
@@ -1580,6 +1689,7 @@ $('#libList').addEventListener('click',e=>{
   }
 });
 $('#libBtn').onclick=()=>{$('#moreModal').classList.remove('open');openLib();};
+$('#helpBtn').onclick=()=>{$('#moreModal').classList.remove('open');openHelp();};
 
 /* backup */
 $('#exportBtn').onclick=()=>{

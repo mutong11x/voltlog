@@ -25,6 +25,11 @@ therefore **not offline-capable**, which is a known and accepted gap.
 3. `<script>` — commented sections: DATA LAYER, HELPERS, LOG VIEW, HISTORY, PDF EXTRACTION,
    BODY VIEW, DASHBOARD, CHART HELPERS, NAV / MODALS, INIT.
 
+The Exercise Progress picker is two chip rows: body part (`#exCats`, filter state `exCat`,
+default `Recent`) over exercises (`#exPick`, selection `curEx`). `exIndex()` is the one source
+for both — every logged exercise, most recently trained first, `cat` from its latest entry.
+Note `curCat` is already taken as a local in `renderExResults`; the filter state is `exCat`.
+
 ## Persistence
 
 `sget`/`sset` pick the first available of: `window.storage` (inside Claude) → `localStorage`
@@ -58,7 +63,7 @@ sessions, and a wrongly-tagged one is fixed by editing that session.
 **3. `name` and `cat` are labels, and labels backfill.** Both are identity, not a record of what
 happened that day, so editing either in the library propagates **backwards** through stored
 entries — `renameExercise` and `recategorize`, both confirmed with a session count. A
-library-only rename would split one lift into two progress series (`exNames`, `exSessions` and
+library-only rename would split one lift into two progress series (`exIndex`, `exSessions` and
 `prMap` all key off trimmed lowercase entry name); a library-only re-category would leave past
 volume stacked under the old body part in `renderVolChart`, which reads `entry.cat`. Neither
 changes a single number. Two exercises may never share a name; collisions are rejected.

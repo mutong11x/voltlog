@@ -6,6 +6,7 @@ let DB,TODAY='2026-08-23';
 const SRC=[
   [/const e1rm=[^\n]*/,'e1rm'],[/const num=[^\n]*/,'num'],[/const isRev=[^\n]*/,'isRev'],
   [/const fmtDate=[^\n]*/,'fmtDate'],
+  [/const daysAgo=[^\n]*/,'daysAgo'],
   [/function agoStr\(d\)\{[\s\S]*?\n\}/,'agoStr'],
   [/function prevEntry\(name,beforeDate,excludeId\)\{[\s\S]*?\n\}/,'prevEntry'],
   [/function setPills\(sets,rev\)\{[\s\S]*?\n\}/,'setPills'],

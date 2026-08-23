@@ -75,6 +75,10 @@ changes a single number. Two exercises may never share a name; collisions are re
   **lowest**, `top` renders as "Least assist" — and hides est. 1RM and Volume on the dashboard,
   since Epley assumes more weight is harder. Missing `rev` reads as false; `rev` beats `load`.
 - **est. 1RM** — Epley, `weight * (1 + reps/30)` (`e1rm`). Returns 0 without a weight.
+- **Best set of a session** — `setPills` renders the pills *and* decides which one is best, so the
+  Stats per-exercise log and the last-time band on the log card can never disagree. Like
+  `entryVol`, one implementation: don't re-inline it. It renders a weight of `0` as `0`, not `–`,
+  because for a `rev` lift zero assistance is the achievement.
 - **PRs** — derived by `prMap()`: one chronological pass (date, then id) keeping a running best
   per exercise, so a PR means "beat everything logged *before* this session". Entries are pooled
   per exercise within a session. For a `rev` exercise the record is the **lowest** weight

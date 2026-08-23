@@ -50,8 +50,10 @@ so the only way to change it on history is the explicit, opt-in "recalculate pas
 the Exercise Library. `rev` is the exception that proves the rule: it moves volume the way `load`
 does, but it describes the *movement* rather than the day — an assisted pull-up was always
 assisted — so `setReverse` writes it back through history behind a confirm instead of waiting for
-that checkbox. `setDual` is the same shape for the same reason: which station a lift lives on is a
-fact about the lift, not about the day.
+that checkbox. `dual` sits on the `load` side of this line, not the `rev` side: the same lift
+genuinely moves between stations week to week, so no single value is correct to write back over a
+mixed history. The library checkbox is a **default for new logs only** — it never touches stored
+sessions, and a wrongly-tagged one is fixed by editing that session.
 
 **3. `name` and `cat` are labels, and labels backfill.** Both are identity, not a record of what
 happened that day, so editing either in the library propagates **backwards** through stored
@@ -77,7 +79,9 @@ changes a single number. Two exercises may never share a name; collisions are re
   goes through it — `entryVol`, `prMap`, `exSessions`, `lastTimeBand` — and none re-derives the
   factor. Normalise **per entry, before flattening**: one exercise can appear twice in a session,
   once per station. Stored per entry because the station changes week to week; the library holds
-  the default and `setDual` backfills. Missing `dual` reads as false.
+  only the default for new logs. Missing `dual` reads as false. Do **not** add a backfill here —
+  `unit-dualpulley` asserts the library handler never touches `DB.sessions`, because a mixed
+  history has no single right answer.
 - **`rev`** — reverse-loaded work (assisted pull-up, assisted dip), read with `isRev`. The logged
   number is *assistance*, so less of it is harder. It is **excluded** from volume (`loadMult`
   returns 0), not inverted: inverting would need an arbitrary baseline, and counting it as-is

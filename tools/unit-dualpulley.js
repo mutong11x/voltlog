@@ -17,7 +17,6 @@ const SRC=[
   [/function setPills\(sets,rev\)\{[\s\S]*?\n\}/,'setPills'],
   [/function prMap\(\)\{[\s\S]*?\n\}/,'prMap'],[/const prsFor=[^\n]*/,'prsFor'],
   [/function exSessions\(\)\{[\s\S]*?\n\}/,'exSessions'],
-  [/function setDual\(x,on\)\{[\s\S]*?\n\}/,'setDual'],
 ].map(([r,n])=>grab(r,n).replace(/^const /,'var ').replace(/^function /,'var _d=0;function '));
 eval(SRC.join(';\n'));
 
@@ -88,34 +87,28 @@ t('heaviest effective set marked best',/best">10×12/.test(h),h);
 h=setPills([st(5,60),st(5,70)],false);
 t('a plain sets array still renders (no raw)',/5×60/.test(h)&&/best">5×70/.test(h),h);
 
-/* ---- 6. setDual backfill --------------------------------------------- */
-const fresh=()=>{
-  DB={exercises:[{id:'e1',name:'Lat Pulldown',cat:'Back',load:'std'}],
-      sessions:[S('a','2026-04-01',[E('Lat Pulldown',[st(10,10)])]),
-                S('b','2026-04-08',[E('Lat Pulldown',[st(10,12)],{exId:'stale'})]),
-                S('c','2026-04-15',[E('Bench',[st(5,60)],{exId:'zz'})])]};
-  draft={entries:[E('Lat Pulldown',[st(10,10)])]};
-  saved=[];toasts=[];confirmAnswer=true;
-};
-const totalVol=()=>DB.sessions.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+entryVol(e),0),0);
-fresh();
-const before=totalVol();
-t('setDual applies',setDual(DB.exercises[0],true)===true&&DB.exercises[0].dual===true);
-t('backfilled by exId',DB.sessions[0].entries[0].dual===true);
-t('backfilled by name (stale id)',DB.sessions[1].entries[0].dual===true);
-t('other exercise untouched',DB.sessions[2].entries[0].dual===false);
-t('unsaved draft backfilled',draft.entries[0].dual===true);
-t('volume doubles for that lift only',totalVol()===before+220,before+' -> '+totalVol());
-t('the logged numbers are unchanged',DB.sessions[0].entries[0].sets[0].weight===10);
-t('confirm names the session count',toasts.some(m=>/^\[confirm\][\s\S]*2 past sessions/.test(m)),JSON.stringify(toasts));
-t('sessions persisted',saved.includes('sessions'));
+/* ---- 6. the library setting is a default, not a rewrite --------------- */
+// Regression guard for the real-world case: the SAME lift moves between stations week to week,
+// so nothing may write a single station back over a mixed history.
+const src=require('fs').readFileSync(APP,'utf8');
+t('no setDual function survives',!/function setDual\s*\(/.test(src));
+const handler=src.slice(src.indexOf("if(t.dataset.libdual!==undefined)"),src.indexOf("} else if(t.dataset.librev"));
+t('the library handler writes only the library',/x\.dual=t\.checked;save\.exercises\(\);/.test(handler),handler.trim().slice(-90));
+t('it never walks DB.sessions',!/DB\.sessions/.test(handler),handler);
+t('it never saves sessions',!/save\.sessions/.test(handler),handler);
+t('it never rewrites the draft',!/draft\.entries/.test(handler),handler);
 
-fresh();confirmAnswer=false;
-t('cancel returns false',setDual(DB.exercises[0],true)===false);
-t('cancel changes nothing',!DB.exercises[0].dual&&!DB.sessions[0].entries[0].dual&&saved.length===0);
-
-fresh();setDual(DB.exercises[0],true);
-t('un-setting restores the original volume',setDual(DB.exercises[0],false)===true&&totalVol()===before,totalVol());
-t('idempotent: same value is a no-op',setDual(DB.exercises[0],false)===false);
+/* ---- 7. mixed history stays mixed ------------------------------------ */
+// two sessions of one lift on different stations: each keeps its own scale
+DB={sessions:[S('a','2026-05-01',[E('Lat Pulldown',[st(10,20)])]),                 // single, 20 eff
+              S('b','2026-05-08',[E('Lat Pulldown',[st(10,10)],{dual:true})])]};   // dual,   20 eff
+curEx='Lat Pulldown';
+rows=exSessions();
+t('a mixed history lines up on effective weight',rows[0].top===20&&rows[1].top===20,
+  JSON.stringify(rows.map(r=>r.top)));
+t('and the volumes match too',rows[0].vol===rows[1].vol,rows[0].vol+' vs '+rows[1].vol);
+PM=prMap();
+t('neither session out-PRs the other',prsFor(PM,'b').prs.length===0,JSON.stringify(prsFor(PM,'b').prs));
+t('each row keeps its own station',rows[0].dual===false&&rows[1].dual===true);
 
 console.log(fails?'\n'+fails+' FAILED':'\nall passed');process.exit(fails?1:0);

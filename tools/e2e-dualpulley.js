@@ -30,7 +30,7 @@ await new Promise(r=>setTimeout(r,800));
 const vol=()=>p.evaluate(()=>DB.sessions.reduce((a,s)=>a+s.entries.reduce((x,e)=>x+entryVol(e),0),0));
 t('baseline volume treats the stack as read',await vol()===520,await vol());
 
-// --- 1. library checkbox + backfill --------------------------------------
+// --- 1. library checkbox sets the DEFAULT and nothing else ---------------
 await p.evaluate(()=>openLib());
 await new Promise(r=>setTimeout(r,250));
 t('every library row has a Dual pulley box',
@@ -38,36 +38,59 @@ t('every library row has a Dual pulley box',
 t('the box renders as a real checkbox',await p.evaluate(()=>{
   const r=document.querySelector('#libList input[data-libdual]').getBoundingClientRect();
   return r.width>=14&&r.width<=24&&r.height>=14;}));
+let dialogs=0;const countDialogs=()=>{dialogs++;};
+p.on('dialog',countDialogs);
 await p.evaluate(()=>{
   const x=DB.exercises.find(e=>e.name==='Lat Pulldown');
   document.querySelector(`#libList input[data-libdual="${x.id}"]`).click();});
 await new Promise(r=>setTimeout(r,300));
-t('library flag set',await p.evaluate(()=>!!DB.exercises.find(e=>e.name==='Lat Pulldown').dual));
-t('past entries backfilled',await p.evaluate(()=>
-  DB.sessions.every(s=>(s.entries.find(e=>e.name==='Lat Pulldown')||{dual:true}).dual===true)));
-t('bench untouched',await p.evaluate(()=>DB.sessions[0].entries[1].dual===false));
-t('volume rises by the pulldown only',await vol()===740,await vol());
-t('the logged numbers are unchanged',await p.evaluate(()=>DB.sessions[0].entries[0].sets[0].weight===10));
-t('persisted to storage',await p.evaluate(()=>
-  JSON.parse(localStorage.getItem('voltlog:sessions'))[0].entries[0].dual===true));
-t('checkbox stays ticked after re-render',await p.evaluate(()=>{
+p.off('dialog',countDialogs);
+t('library default set',await p.evaluate(()=>!!DB.exercises.find(e=>e.name==='Lat Pulldown').dual));
+t('it asks for no confirmation',dialogs===0,'dialogs: '+dialogs);
+t('PAST SESSIONS ARE UNTOUCHED',await p.evaluate(()=>
+  DB.sessions.every(s=>(s.entries.filter(e=>e.name==='Lat Pulldown')).every(e=>!e.dual))));
+t('volume is unchanged',await vol()===520,await vol());
+t('stored sessions unchanged on disk',await p.evaluate(()=>
+  JSON.parse(localStorage.getItem('voltlog:sessions'))[0].entries[0].dual===false));
+t('the library default IS persisted',await p.evaluate(()=>
+  JSON.parse(localStorage.getItem('voltlog:exercises')).find(e=>e.name==='Lat Pulldown').dual===true));
+t('checkbox stays ticked',await p.evaluate(()=>{
   const x=DB.exercises.find(e=>e.name==='Lat Pulldown');
   return document.querySelector(`#libList input[data-libdual="${x.id}"]`).checked===true;}));
 await p.evaluate(()=>$('#libModal').classList.remove('open'));
 
-// --- 2. dashboard uses the effective weight ------------------------------
+// --- 2. fixing one past session by editing it ----------------------------
+// s2 was logged on the dual station; tag it the way the History view does.
+await p.evaluate(()=>{loadSessionToDraft('s2');});
+await new Promise(r=>setTimeout(r,350));
+t('editing an old session shows its station toggle',
+  await p.evaluate(()=>!!document.querySelector('[data-pul]')));
+t('it opens on Single, as logged',await p.evaluate(()=>
+  document.querySelector('[data-pul][data-d="0"]').classList.contains('on')));
+await p.evaluate(()=>document.querySelector('[data-pul][data-d="1"]').click());
+await new Promise(r=>setTimeout(r,200));
+await p.evaluate(()=>$('#saveSess').click());
+await new Promise(r=>setTimeout(r,500));
+t('the corrected session is stored as dual',await p.evaluate(()=>
+  DB.sessions.find(s=>s.id==='s2').entries[0].dual===true));
+t('the other session is still single',await p.evaluate(()=>
+  DB.sessions.find(s=>s.id==='s1').entries[0].dual===false));
+t('only that session\'s volume moved',await vol()===640,await vol());
+
+// --- 3. dashboard uses the effective weight ------------------------------
 await p.evaluate(()=>{go('dash');curEx='Lat Pulldown';curMetric='1rm';renderDash();renderExPicker();});
 await new Promise(r=>setTimeout(r,800));
-// est. 1RM on the EFFECTIVE weights: 20*(1+10/30)=26.7, 24*(1+10/30)=32
-t('est 1RM chart uses the doubled weight',await p.evaluate(()=>{
+// A MIXED history: s1 single at 10 -> 10 effective, s2 dual at 12 -> 24 effective.
+// est. 1RM on those: 10*(1+10/30)=13.3, 24*(1+10/30)=32
+t('est 1RM chart uses each session\'s own station',await p.evaluate(()=>{
   const c=dashCharts.find(c=>c.canvas.id==='exChart');
-  return c&&c.data.datasets[0].data.join()==='26.7,32';}),
+  return c&&c.data.datasets[0].data.join()==='13.3,32';}),
   await p.evaluate(()=>{const c=dashCharts.find(c=>c.canvas.id==='exChart');return c?c.data.datasets[0].data.join():'no chart';}));
 await p.evaluate(()=>{curMetric='top';renderExPicker();});
 await new Promise(r=>setTimeout(r,400));
-t('top-set chart plots the doubled value',await p.evaluate(()=>{
+t('top-set chart doubles only the dual session',await p.evaluate(()=>{
   const c=dashCharts.find(c=>c.canvas.id==='exChart');
-  return c&&c.data.datasets[0].data.join()==='20,24';}),
+  return c&&c.data.datasets[0].data.join()==='10,24';}),
   await p.evaluate(()=>{const c=dashCharts.find(c=>c.canvas.id==='exChart');return c?c.data.datasets[0].data.join():'no chart';}));
 const exlog=await p.evaluate(()=>$('#exLog').textContent.replace(/\s+/g,' ').trim());
 t('the per-exercise log still shows the pin setting',/10×12/.test(exlog)&&!/10×24/.test(exlog),exlog.slice(0,110));

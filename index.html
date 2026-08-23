@@ -1308,8 +1308,9 @@ const LIB_NOTE='Per-side doubles <b>volume only</b> — top set and est. 1RM sta
   '<b>Assisted</b> is for machine-assisted work where the weight is help (assisted pull-up): it '+
   'is dropped from volume entirely and applies to past sessions too, since the movement was '+
   'always assisted. <b>Dual pulley</b> is for stations that run two cables to the load, where the '+
-  'pin reads half what you actually move — it doubles the weight everywhere, and sets the default '+
-  'for new logs. Switch stations for one session on the exercise card instead.';
+  'pin reads half what you actually move — it doubles the weight everywhere. This sets the '+
+  '<b>default for new logs only</b>; past sessions keep the station they were logged with. Switch '+
+  'stations for a single session on the exercise card, or on an old one by editing it.';
 function openLib(transition){
   $('#libTitle').textContent=transition?'Tag your unilateral lifts':'Exercise Library';
   $('#libNote').innerHTML=(transition?'<b style="color:var(--acc)">New:</b> volume now doubles for '+
@@ -1459,35 +1460,15 @@ function setReverse(x,on){
   if(av&&av.id==='v-hist')renderHistory(); else if(av&&av.id==='v-dash')renderDash();
   return true;
 }
-/* The library setting is the DEFAULT station for this lift, and backfills history — right when a
-   lift was always done on the same machine, which is the case that made the numbers wrong in the
-   first place. The per-entry toggle on the log card covers the weeks you used the other one. */
-function setDual(x,on){
-  on=!!on;
-  if(on===!!x.dual) return false;
-  const key=x.name.trim().toLowerCase();
-  const match=en=>en.exId===x.id||(en.name||'').trim().toLowerCase()===key; // id first; name catches imported backups
-  const hits=DB.sessions.filter(s=>(s.entries||[]).some(en=>match(en)&&!!en.dual!==on)).length;
-  if(hits && !confirm('Set “'+x.name+'” to '+(on?'dual':'single')+' pulley?\n\nThis also applies to '+hits+
-    ' past session'+(hits>1?'s':'')+': their weights count as '+(on?'double':'half')+' what they do now, so '+
-    'top set, est. 1RM, PRs and volume all '+(on?'go up':'go down')+'.\n\nThe numbers you logged are '+
-    'unchanged — only what they are taken to mean. Export a backup first.')) return false;
-  x.dual=on;
-  DB.sessions.forEach(s=>(s.entries||[]).forEach(en=>{if(match(en))en.dual=on;}));
-  draft.entries.forEach(en=>{if(match(en))en.dual=on;});  // an unsaved draft too
-  save.exercises();
-  if(hits){save.sessions();toast('Set to '+(on?'dual':'single')+' in '+hits+' session'+(hits>1?'s':'')+' ✓');}
-  renderExList();
-  const av=document.querySelector('.view.active');
-  if(av&&av.id==='v-hist')renderHistory(); else if(av&&av.id==='v-dash')renderDash();
-  return true;
-}
 $('#libList').addEventListener('change',e=>{
   const t=e.target;
   if(t.dataset.libdual!==undefined){
     const x=DB.exercises.find(o=>o.id===t.dataset.libdual);if(!x)return;
-    if(!setDual(x,t.checked)) t.checked=!!x.dual; // cancelled — put the box back
-    renderLib();
+    // Default for NEW logs only. Unlike `cat` or `rev`, which describe the movement, the station
+    // is a fact about a particular session — the same lift genuinely moves between the two — so
+    // there is no single right answer to write back over history. Past sessions keep what they
+    // were logged with, and a wrong one is fixed by editing that session. Same rule as `load`.
+    x.dual=t.checked;save.exercises();
   } else if(t.dataset.librev!==undefined){
     const x=DB.exercises.find(o=>o.id===t.dataset.librev);if(!x)return;
     if(!setReverse(x,t.checked)) t.checked=!!x.rev; // cancelled — put the box back

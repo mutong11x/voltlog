@@ -165,6 +165,9 @@ header{position:sticky;top:0;z-index:40;background:linear-gradient(180deg,var(--
 .chartbox{position:relative;height:220px;margin-top:6px}
 .chartbox.tall{height:250px}
 .pick{display:flex;gap:8px;align-items:center;overflow-x:auto;padding-bottom:4px;margin:2px 0 6px}
+.pick.cats{margin-bottom:2px}
+.chip.cat{padding:6px 12px;font-size:12px}
+.chip .age{margin-left:6px;font-size:10px;opacity:.55;font-weight:600}
 .pick::-webkit-scrollbar{display:none}
 
 /* bottom nav */
@@ -317,6 +320,7 @@ nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(13,19,23,.
 
     <div class="sect-h"><h2>Exercise Progress</h2><span class="line"></span></div>
     <div class="card">
+      <div class="pick cats" id="exCats"></div>
       <div class="pick" id="exPick"></div>
       <div class="seg" id="exMetric"></div>
       <div class="chartbox"><canvas id="exChart"></canvas></div>
@@ -504,13 +508,22 @@ const entryVol=en=>effSets(en).reduce((a,st)=>a+(st.weight||0)*(st.reps||0),0)*l
 const fmtDate=s=>{const d=new Date(s+'T00:00');return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'});};
 const num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
 /* how long ago, in the coarsest unit that still reads as a gap you'd care about mid-session */
+const daysAgo=d=>Math.round((new Date(todayStr()+'T00:00')-new Date(d+'T00:00'))/864e5);
 function agoStr(d){
-  const days=Math.round((new Date(todayStr()+'T00:00')-new Date(d+'T00:00'))/864e5);
+  const days=daysAgo(d);
   if(days<=0)return 'today';
   if(days===1)return 'yesterday';
   if(days<14)return days+' days ago';
   if(days<60)return Math.round(days/7)+' wks ago';
   return Math.round(days/30)+' mo ago';
+}
+/* Same thresholds, chip-sized: a picker chip has no room for "2 weeks ago". */
+function agoShort(d){
+  const days=daysAgo(d);
+  if(days<=0)return 'today';
+  if(days<14)return days+'d';
+  if(days<60)return Math.round(days/7)+'w';
+  return Math.round(days/30)+'mo';
 }
 /* The last time this exercise was logged BEFORE the session being drafted. Keyed on trimmed
    lowercase name (rule 3), so a renamed lift keeps its history — renameExercise backfills the
@@ -1123,7 +1136,8 @@ function drawTrendChart(){
 /* ============================ DASHBOARD ============================ */
 let dashCharts=[];
 function destroyDash(){dashCharts.forEach(c=>{try{c.destroy()}catch(e){}});dashCharts=[];}
-let curEx=null;
+const RECENT='Recent';           // the "everything, newest first" tab
+let curEx=null, exCat=RECENT;
 
 function renderDash(){
   destroyDash();
@@ -1140,7 +1154,22 @@ function renderWeekStats(){
     ['Volume',Math.round(vol).toLocaleString(),'kg',CAT_COLORS.Legs],['New PRs',allPr,'',CAT_COLORS.Shoulders]];
   $('#weekStats').innerHTML=tiles.map(t=>`<div class="stat"><div class="glow" style="background:${t[3]}"></div><div class="k">${t[0]}</div><div class="v">${t[1]} <small>${t[2]}</small></div></div>`).join('');
 }
-function exNames(){const set=new Set();DB.sessions.forEach(s=>s.entries.forEach(e=>set.add(e.name)));return[...set];}
+/* Every exercise you have actually logged, most recently trained FIRST — the order that matters
+   when you are looking one up. `cat` comes from the latest entry, so a re-categorised lift files
+   under its current body part. One row per name, keyed the way exSessions and prMap key. */
+function exIndex(){
+  const by=new Map();
+  DB.sessions.forEach(s=>(s.entries||[]).forEach(e=>{
+    if(!e.sets||!e.sets.length)return;
+    const key=(e.name||'').trim().toLowerCase();
+    const cur=by.get(key);
+    if(!cur||s.date>cur.last) by.set(key,{name:e.name,cat:e.cat||'Other',last:s.date});
+  }));
+  return [...by.values()].sort((a,b)=>b.last.localeCompare(a.last)||a.name.localeCompare(b.name));
+}
+// body parts you have logged something in, in the library's own order so it reads consistently
+const exCats=idx=>Object.keys(CAT_COLORS).filter(c=>idx.some(x=>x.cat===c));
+const exFilter=(idx,cat)=>cat===RECENT?idx:idx.filter(x=>x.cat===cat);
 
 const METRICS=[['1rm','Est 1RM','kg','#c8ff4d'],['top','Top set','kg','#1fe6c8'],['vol','Volume','kg','#5cc8ff'],['reps','Reps','','#ff7a9c']];
 let curMetric='1rm';
@@ -1176,11 +1205,31 @@ const metricsFor=rev=>rev?METRICS.filter(m=>m[0]==='top'||m[0]==='reps'):METRICS
 const metricLabel=(m,rev)=>(rev&&m[0]==='top')?'Least assist':m[1];
 
 function renderExPicker(){
-  const names=exNames();const pick=$('#exPick');
-  if(!names.length){pick.innerHTML='';$('#exMetric').innerHTML='';$('#exPb').textContent='Log workouts to see progress.';$('#exLog').innerHTML='';drawExChart();return;}
-  if(!curEx||!names.includes(curEx))curEx=names[0];
+  const idx=exIndex();const pick=$('#exPick'),cats=$('#exCats');
+  // drawExChart FIRST: it clears #exPb when there is nothing to plot, so setting the prompt
+  // before it meant the empty state was wiped on the same tick and never actually showed
+  if(!idx.length){pick.innerHTML='';cats.innerHTML='';$('#exMetric').innerHTML='';$('#exLog').innerHTML='';
+    drawExChart();$('#exPb').textContent='Log workouts to see progress.';return;}
+  // a body part with nothing logged in it has no tab, so the filter can never be empty
+  const tabs=[RECENT,...exCats(idx)];
+  if(!tabs.includes(exCat))exCat=RECENT;
+  let shown=exFilter(idx,exCat);
+  // the lit chip must always be one of the visible ones — a chart with nothing selected reads as
+  // a bug — so switching body part lands on that group's most recent lift
+  if(!curEx||!shown.some(x=>x.name===curEx))curEx=shown[0].name;
+
+  cats.innerHTML='';
+  tabs.forEach(c=>{const b=document.createElement('button');
+    b.className='chip cat'+(c===exCat?' on':'');b.textContent=c;
+    if(c!==exCat&&c!==RECENT)b.style.color=CAT_COLORS[c];
+    b.onclick=()=>{exCat=c;curEx=null;renderExPicker();};   // null → pick the group's most recent
+    cats.appendChild(b);});
+
   pick.innerHTML='';
-  names.forEach(n=>{const b=document.createElement('button');b.className='chip'+(n===curEx?' on':'');b.textContent=n;b.onclick=()=>{curEx=n;renderExPicker();};pick.appendChild(b);});
+  shown.forEach(x=>{const b=document.createElement('button');
+    b.className='chip'+(x.name===curEx?' on':'');
+    b.innerHTML=`${esc(x.name)}<span class="age">${agoShort(x.last)}</span>`;
+    b.onclick=()=>{curEx=x.name;renderExPicker();};pick.appendChild(b);});
   const seg=$('#exMetric');seg.innerHTML='';
   const rev=curExRev(),mets=metricsFor(rev);
   if(!mets.some(m=>m[0]===curMetric))curMetric=mets[0][0]; // switching to an assisted lift off a hidden metric

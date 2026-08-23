@@ -1062,27 +1062,38 @@ function segBalance(s){
 }
 
 /* selectable body-metric trends */
+/* Grouped for browsing, three tabs over seventeen metrics. Deliberately NOT derived from
+   SCAN_SCHEMA: that groups raw FIELDS for the entry form (seven groups), while these group trend
+   metrics, several of which span fields — `torso` takes one from Segmental-Lean and one from
+   Segmental-Fat, `water` is one metric over three fields. Ordered so each group is contiguous and
+   Weight comes first, which is also drawTrendChart's fallback. */
+const TREND_GROUPS=['Composition','Segmental','Health'];
 const TREND_METRICS=[
-  {k:'armlean',label:'Arm lean L/R',unit:'kg',fields:[['larm_l','Left'],['rarm_l','Right']]},
-  {k:'armfat',label:'Arm fat L/R',unit:'kg',fields:[['larm_f','Left'],['rarm_f','Right']]},
-  {k:'leglean',label:'Leg lean L/R',unit:'kg',fields:[['lleg_l','Left'],['rleg_l','Right']]},
-  {k:'legfat',label:'Leg fat L/R',unit:'kg',fields:[['lleg_f','Left'],['rleg_f','Right']]},
-  {k:'torso',label:'Torso lean/fat',unit:'kg',fields:[['torso_l','Lean'],['torso_f','Fat']]},
-  {k:'weight',label:'Weight',unit:'kg',fields:[['weight','Weight']]},
-  {k:'lbm',label:'Lean mass',unit:'kg',fields:[['lbm','Lean Mass']]},
-  {k:'smm',label:'Skeletal muscle',unit:'kg',fields:[['smm','Skeletal Muscle']]},
-  {k:'tbf',label:'Body fat %',unit:'%',fields:[['tbf','Body Fat %']]},
-  {k:'bfm',label:'Body fat mass',unit:'kg',fields:[['bfm','Body Fat Mass']]},
-  {k:'subc',label:'Subcut. fat',unit:'kg',fields:[['subc','Subcut Fat']]},
-  {k:'water',label:'Water TBW/ICF/ECF',unit:'kg',fields:[['tbw','TBW'],['icf','ICF'],['ecf','ECF']]},
-  {k:'visceral',label:'Visceral lvl/area',unit:'',dual:true,fields:[['vfl','Level'],['vfa','Area cm²']]},
-  {k:'whr',label:'Waist:hip',unit:'',fields:[['whr','WHR']]},
-  {k:'bioage',label:'Bio age',unit:'yr',fields:[['bioage','Bio Age']]},
-  {k:'bwi',label:'BWI',unit:'/10',fields:[['bwi','BWI']]},
-  {k:'bmr',label:'BMR',unit:'kcal',fields:[['bmr','BMR']]},
+  {k:'weight',g:'Composition',label:'Weight',unit:'kg',fields:[['weight','Weight']]},
+  {k:'lbm',g:'Composition',label:'Lean mass',unit:'kg',fields:[['lbm','Lean Mass']]},
+  {k:'smm',g:'Composition',label:'Skeletal muscle',unit:'kg',fields:[['smm','Skeletal Muscle']]},
+  {k:'tbf',g:'Composition',label:'Body fat %',unit:'%',fields:[['tbf','Body Fat %']]},
+  {k:'bfm',g:'Composition',label:'Body fat mass',unit:'kg',fields:[['bfm','Body Fat Mass']]},
+  {k:'subc',g:'Composition',label:'Subcut. fat',unit:'kg',fields:[['subc','Subcut Fat']]},
+  {k:'armlean',g:'Segmental',label:'Arm lean L/R',unit:'kg',fields:[['larm_l','Left'],['rarm_l','Right']]},
+  {k:'armfat',g:'Segmental',label:'Arm fat L/R',unit:'kg',fields:[['larm_f','Left'],['rarm_f','Right']]},
+  {k:'leglean',g:'Segmental',label:'Leg lean L/R',unit:'kg',fields:[['lleg_l','Left'],['rleg_l','Right']]},
+  {k:'legfat',g:'Segmental',label:'Leg fat L/R',unit:'kg',fields:[['lleg_f','Left'],['rleg_f','Right']]},
+  {k:'torso',g:'Segmental',label:'Torso lean/fat',unit:'kg',fields:[['torso_l','Lean'],['torso_f','Fat']]},
+  {k:'visceral',g:'Health',label:'Visceral lvl/area',unit:'',dual:true,fields:[['vfl','Level'],['vfa','Area cm²']]},
+  {k:'whr',g:'Health',label:'Waist:hip',unit:'',fields:[['whr','WHR']]},
+  {k:'bioage',g:'Health',label:'Bio age',unit:'yr',fields:[['bioage','Bio Age']]},
+  {k:'bwi',g:'Health',label:'BWI',unit:'/10',fields:[['bwi','BWI']]},
+  {k:'bmr',g:'Health',label:'BMR',unit:'kcal',fields:[['bmr','BMR']]},
+  {k:'water',g:'Health',label:'Water TBW/ICF/ECF',unit:'kg',fields:[['tbw','TBW'],['icf','ICF'],['ecf','ECF']]},
 ];
+// a metric earns a chip only if some scan actually measured it. != null, because 0 is a real value
+const scanHas=(m,sc)=>sc.some(s=>m.fields.some(f=>s[f[0]]!=null));
+const trendAvail=()=>TREND_METRICS.filter(m=>scanHas(m,DB.scans));
+const trendGroupsFor=a=>TREND_GROUPS.filter(g=>a.some(m=>m.g===g));
+const trendFilter=(a,g)=>a.filter(m=>m.g===g);
 const TREND_COLORS=['#1fe6c8','#5cc8ff','#c8ff4d','#ffb454','#ff7a9c','#b78cff'];
-let curTrend='armlean';
+let curTrend='weight', trendGroup='Composition';
 const PAIR_KEYS=['armlean','armfat','leglean','legfat'];
 
 function renderBodyCharts(){
@@ -1094,6 +1105,7 @@ function renderBodyCharts(){
     <div class="card"><div class="k" style="${hk}">Composition overview</div><div class="chartbox"><canvas id="compChart"></canvas></div></div>
     <div class="card">
       <div class="k" style="${hk}">Detailed trend</div>
+      <div class="pick cats" id="trendCats"></div>
       <div class="pick" id="trendPick"></div>
       <div class="chartbox"><canvas id="trendChart"></canvas></div>
       <div id="trendInfo" class="note" style="text-align:center;margin-top:8px"></div>
@@ -1108,8 +1120,30 @@ function renderBodyCharts(){
   renderTrendPicker();
 }
 function renderTrendPicker(){
-  const pick=$('#trendPick');if(!pick)return;pick.innerHTML='';
-  TREND_METRICS.forEach(m=>{const b=document.createElement('button');b.className='chip'+(m.k===curTrend?' on':'');b.textContent=m.label;b.onclick=()=>{curTrend=m.k;renderTrendPicker();};pick.appendChild(b);});
+  const pick=$('#trendPick'),cats=$('#trendCats');if(!pick||!cats)return;
+  const avail=trendAvail();
+  if(!avail.length){   // scans exist but carry none of these fields
+    cats.innerHTML='';pick.innerHTML='';
+    const i=bodyChartObjs.findIndex(c=>c.canvas&&c.canvas.id==='trendChart');
+    if(i>=0){bodyChartObjs[i].destroy();bodyChartObjs.splice(i,1);}   // don't leave a stale chart
+    const info=$('#trendInfo');if(info)info.textContent='No detailed measurements in these scans yet.';
+    return;
+  }
+  const groups=trendGroupsFor(avail);
+  if(!groups.includes(trendGroup))trendGroup=groups[0];
+  const shown=trendFilter(avail,trendGroup);
+  // the lit chip must be one of the visible ones, as on the exercise picker
+  if(!shown.some(m=>m.k===curTrend))curTrend=shown[0].k;
+
+  cats.innerHTML='';
+  groups.forEach(g=>{const b=document.createElement('button');
+    b.className='chip cat'+(g===trendGroup?' on':'');b.textContent=g;
+    b.onclick=()=>{trendGroup=g;curTrend=null;renderTrendPicker();}; // null → the group's first
+    cats.appendChild(b);});
+
+  pick.innerHTML='';
+  shown.forEach(m=>{const b=document.createElement('button');b.className='chip'+(m.k===curTrend?' on':'');
+    b.textContent=m.label;b.onclick=()=>{curTrend=m.k;renderTrendPicker();};pick.appendChild(b);});
   drawTrendChart();
 }
 function drawTrendChart(){

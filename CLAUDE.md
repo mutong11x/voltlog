@@ -30,6 +30,11 @@ default `Recent`) over exercises (`#exPick`, selection `curEx`). `exIndex()` is 
 for both — every logged exercise, most recently trained first, `cat` from its latest entry.
 Note `curCat` is already taken as a local in `renderExResults`; the filter state is `exCat`.
 
+The Body tab's Detailed trend picker mirrors it: `TREND_GROUPS` (`#trendCats`, state `trendGroup`)
+over metrics (`#trendPick`, selection `curTrend`), with `trendAvail()` hiding any metric no scan
+has measured. `TREND_GROUPS` is **not** `SCAN_SCHEMA` — that groups raw fields for the entry form,
+these group trend metrics, and several metrics span its groups. Keep them separate.
+
 ## Persistence
 
 `sget`/`sset` pick the first available of: `window.storage` (inside Claude) → `localStorage`

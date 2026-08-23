@@ -823,7 +823,7 @@ function renderHistory(){
     it.innerHTML=`
       <div class="hitem-top" data-tog>
         <div><div class="date">${fmtDate(s.date)}</div>
-          <div class="meta"><span class="br">${s.branch}</span> · ${s.entries.length} exercises · ${totalSets} sets · ${Math.round(vol).toLocaleString()} kg vol</div></div>
+          <div class="meta"><span class="br">${s.branch}</span> · ${s.entries.length} exercise${s.entries.length===1?'':'s'} · ${totalSets} set${totalSets===1?'':'s'} · ${Math.round(vol).toLocaleString()} kg vol</div></div>
         <div style="display:flex;align-items:center;gap:8px">${news.length?'<span class="new-badge">'+news.length+' NEW</span>':''}${prs.length?'<span class="pr-badge">'+prs.length+' PR</span>':''}<span style="color:var(--dim)">▾</span></div>
       </div>
       <div class="hdetail">
@@ -1262,7 +1262,7 @@ function renderExLog(){
         <div class="exlog-d">${fmtDate(r.date)}<span class="br">${r.branch}</span>${r.isPR?'<span class="pr-badge">PR</span>':''}${r.isNew?'<span class="new-badge">First</span>':''}</div>
         <div class="exlog-tot">${r.side?'<span style="color:var(--acc)">per side</span> · ':''}${
           r.rev?'<span style="color:var(--blue)">assisted</span> · ':''}${
-          r.dual?'<span style="color:var(--blue)">dual ×2</span> · ':''}${r.sets.length} sets${
+          r.dual?'<span style="color:var(--blue)">dual ×2</span> · ':''}${r.sets.length} set${r.sets.length===1?'':'s'}${
           r.rev?'':' · '+r.vol.toLocaleString()+'kg'}</div>
       </div>
       <div class="exlog-sets">${pills}</div>

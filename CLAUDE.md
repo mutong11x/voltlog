@@ -102,19 +102,29 @@ doesn't either — nothing it touches is a number.
 
 ## Checking your work
 
-There is no test suite and no linter. At minimum, syntax-check the inline script:
+Checks live in `tools/`. They are dev-only — nothing there is imported by `index.html` or ships
+with it, and the toolchain installs outside the repo so no `node_modules` sits next to the app.
 
 ```bash
-python3 -c "import re;print(re.findall(r'<script>(.*?)</script>',open('index.html').read(),re.S)[-1])" > /tmp/app.js
-node --check /tmp/app.js
+tools/setup.sh          # once per machine: fetches node + headless Chrome (idempotent)
+tools/check.sh          # syntax + unit + browser; non-zero exit on failure
+tools/check.sh unit     # skip the browser
 ```
 
-Beyond that, the productive pattern is to extract the real function from `index.html` with a
-regex, `eval` it against stubs in Node, and assert behaviour — and for anything user-visible, load
-the page in headless Chrome and drive the actual save/render paths rather than trusting a read of
-the code. Past work here has caught a checkbox destroyed by the global `input` reset and a PR
-double-count that only appears when one exercise is logged twice in a session; neither was
-visible by inspection.
+**Run `tools/check.sh` before committing.** There is no CI, so this is the only gate.
+
+`node` is NOT installed system-wide here, and on WSL a bare `node` resolves to the Windows build,
+which cannot run Linux postinstall scripts — always go through `tools/`, never a bare `node`.
+
+The pattern the suites use: pull the real function text out of `index.html` by regex, `eval` it
+against stubs, assert behaviour — so the tests run the shipped code, not a copy that drifts. For
+anything user-visible, drive the actual save/render paths in headless Chrome at 320px instead of
+trusting a read. That has caught a checkbox destroyed by the global `input` reset, a PR
+double-count that only appears when one exercise is logged twice in a session, a dashboard that
+crashed on its second visit, and a `0 kg` set rendering as `–`; none were visible by inspection.
+
+New checks are picked up by filename — add `tools/unit-*.js` or `tools/e2e-*.js`, no registration.
+See `tools/README.md`.
 
 ## Conventions
 
